@@ -13,6 +13,123 @@ class Rig():
     def build(self):
         pass
 
+class Component():
+    '''
+    Represents a basic control component.
+    Contains input and output interfaces.
+    :param name: A string to describe the component as a whole.
+    :param mainControlType: The control string to use to generate the main control curve
+    :param deformTargets: Pynodes that the component will deform.
+    '''
+
+    def __init__(self, name='default', mainControlType='default', deformTargets=[], **kwargs):
+        self.name = name
+        self.mainControlType=mainControlType
+        self.deformTargets=deformTargets
+        self.deformJoints = []
+        self.inputs = {}
+        self.outputs = {}
+
+    def build(self):
+        # Create an empty group to house all parts of the component
+        self.comGroup = pmc.group(empty=True, name=self.name+'_com')
+
+        # Add an input, output, control and deform group
+        # These are just for organization purposes
+        self.inputGroup = pmc.group(empty=True, name='input')
+        pmc.parent(self.inputGroup, self.comGroup)
+        self.outputGroup = pmc.group(empty=True, name='output')
+        pmc.parent(self.outputGroup, self.comGroup)
+        self.controlGroup = pmc.group(empty=True, name='control')
+        pmc.parent(self.controlGroup, self.comGroup)
+        self.deformGroup = pmc.group(empty=True, name='deform')
+        pmc.parent(self.deformGroup, self.comGroup)
+
+        # Add a local world input
+        # This controls the local offset for the localSpace buffer
+        # Essentially zeroing out the control transforms
+        self.addInput('localWorld')
+
+        # Add a parentspace and uprightspace input
+        # These controls the space the localSpace buffer inhabits
+        self.addInput('parentSpace')
+        self.addInput('uprightSpace')
+
+        # Add a main space output
+        # This will allow for other components to inhabit its space
+        self.addOutput('main_srt')
+
+        # For each deform target, create a deform output
+        lastJoint = None
+        for target in self.deformTargets:
+            # Create a joint to bind the deform target to
+            joint = pmc.joint(name=target.name() + '_srt')
+
+            # Match the targets transform, and constrain it to the joint
+            joint.setMatrix(target.getMatrix(worldSpace=True), worldSpace=True)
+            pmc.parentConstraint(joint, target)
+
+            # If this is not the first target, parent it to the previous
+            # Otherwise mark it as the startjoint
+            if lastJoint is not None:
+                pmc.parent(joint, lastJoint)
+            else:
+                pmc.parent(joint, self.deformGroup)
+                self.startJoint = joint
+
+            # Add the joint to a joint list
+            self.deformJoints.append(joint)
+
+            # Set the lastTarget to the joint
+            lastTarget = joint
+
+        # Mark the final joint as the endJoint
+        self.endJoint = lastJoint
+
+        # Create a space buffer for the control
+        self.mainControlBuffer = pmc.group(empty=True, name=self.name+'_srtBuffer')
+        pmc.parent(self.mainControlBuffer, self.controlGroup)
+
+        # Connect the control space buffer to the local world input
+        connect_transforms(self.inputs['localWorld'], self.mainControlBuffer)
+
+        # Create the main control
+        self.mainControl = controltools.create_control_curve(self.mainControlType)
+        pmc.rename(self.mainControl, self.name+'_main_ctrl')
+        match_target_orientation(target=None, object=self.mainControl, upVector=dt.Vector(0,1,0))
+        pmc.parent(self.mainControl, self.mainControlBuffer, r=False)
+
+        # If there is a endJoint, move the localWorldGroup to that worldPosition
+        # Otherwise
+        #if self.endJoint is not None:
+            #self.getInput('localWorld').setMatrix(self.endJoint.getMatrix(worldSpace=True), worldSpace=True)
+
+    def addInput(self, inputName):
+        # Create an empty group to house input properties
+        input = pmc.group(empty=True, name=inputName)
+        self.inputs[inputName] = input
+        pmc.parent(input, self.inputGroup)
+
+        return input
+
+    def addOutput(self, outputName):
+        # Create an empty group to house output properties
+        output = pmc.group(empty=True, name=outputName)
+        self.outputs[outputName] = output
+        pmc.parent(output, self.outputGroup)
+
+        return output
+
+    def getInput(self, inputName):
+        input = None
+        try:
+            input = self.inputs[inputName]
+        except KeyError:
+            raise
+        return input
+
+
+
 class Control():
     '''
     Represents a very basic control.
@@ -24,7 +141,8 @@ class Control():
         - A local up vector
     '''
 
-    def __init__(self, transform=None, name='defaultControl', curve='default', parent=None, parentSpace=None, uprightSpace=None, upVector=dt.Vector(0,1,0), scale=(10.0, 10.0, 10.0), **kwargs):
+    def __init__(self, transform=None, name='defaultControl', curve='default', parent=None, parentSpace=None,
+                 uprightSpace=None, upVector=dt.Vector(0,1,0), scale=(10.0, 10.0, 10.0), **kwargs):
         self.transform = transform
         self.name = name
         self.curve = curve
@@ -156,6 +274,24 @@ class GlobalControl(Control):
 
 
 #### Control Functions ####
+def connect_transforms(input, output, translate=True, rotate=True, scale=True):
+    '''
+    Connects the transform attributes of one transform to another
+    :param input: The source transform.
+    :param output: The target transform.
+    :param translate: A bool to determine whether to connect translation.
+    :param rotate: A bool to determine whether to connect rotation.
+    :param scale: A bool to determine whether to connect scale.
+    :return: None
+    '''
+
+    if translate:
+        pmc.connectAttr(input.translate, output.translate)
+    if rotate:
+        pmc.connectAttr(input.rotate, output.rotate)
+    if scale:
+        pmc.connectAttr(input.scale, output.scale)
+
 def add_parent_space(control):
     '''
     Adds a parentspace group and an uprightSpace group.
@@ -445,6 +581,10 @@ def _test_rigtools():
     rLeg = pmc.PyNode('EthanRightLeg')
     rFoot = pmc.PyNode('EthanRightFoot')
 
+    masterCom = Component(name='master', deformTargets=[root])
+    masterCom.build()
+
+    '''
     masterControl = GlobalControl(root, scale=(50.0, 50.0, 50.0))
     masterControl.build()
 
@@ -463,20 +603,20 @@ def _test_rigtools():
                              name='leg', scale=(10.0,10.0,10.0), globalControl=masterControl, stretchEnabled=True,
                              squashEnabled=True, stretchJoints=[rUpLeg])
     legControl.build()
-
+    
     #legControl = FKControl(rLeg, rUpLeg, masterControl, stretchEnabled=True, parent=upLegControl, uprightParent=upLegControl, name='leg')
     #legControl.build()
     #footControl = FKControl(rFoot, rLeg, masterControl, stretchEnabled=True, parent=legControl, uprightParent=legControl, name='foot')
     #footControl.build()
 
-
+    
     footIKControl = IKControl(foot, upLeg, transform=foot, parent=masterControl, parentSpace=masterControl,
                               uprightSpace=masterControl, name='foot', curve='cube', rotatePlaneSolver=False,
                               poleJoint=leg, stretchEnabled=True, squashEnabled=True, globalControl=masterControl,
                               scaleAxis=dt.Vector(1,0,0), stretchJoints=[upLeg,leg])
     footIKControl.build()
-
-    #pmc.undoInfo(openChunk=False)
+    '''
+    pmc.undoInfo(openChunk=False)
 
 # from rigtools import rigtools; reload(rigtools); rigtools._test_rigtools()
 
