@@ -23,32 +23,32 @@ def show():
 
         def onCreateAtSelection(name, xRot, yRot, zRot, xScale, yScale, zScale, freeze, selection):
             sel = pmc.ls(selection = True)
-            curve = controltools.co_create_control_curve(selection)
+            curve = controltools.create_control_curve(selection)
             pmc.select(sel)
-            controltools.co_move_to_selection(curve)
-            controltools.co_rotate_curve(float(xRot), float(yRot), float(zRot), curve)
-            controltools.co_scale_curve(float(xScale), float(yScale), float(zScale), curve)
+            controltools.move_to_selection(curve)
+            controltools.rotate_curve(float(xRot), float(yRot), float(zRot), curve)
+            controltools.scale_curve(float(xScale), float(yScale), float(zScale), curve)
             if freeze:
-                controltools.co_freeze_transforms(curve)
-            controltools.co_name_curve(name, curve)
+                controltools.freeze_transforms(curve)
+            controltools.name_curve(name, curve)
         window.createAtSelectionClicked.connect(onCreateAtSelection)
 
         def onCreateAtOrigin(name, xRot, yRot, zRot, xScale, yScale, zScale, freeze, selection):
-            curve = controltools.co_create_control_curve(selection)
-            controltools.co_rotate_curve( float(xRot), float(yRot), float(zRot), curve)
-            controltools.co_scale_curve(float(xScale), float(yScale), float(zScale), curve)
+            curve = controltools.create_control_curve(selection)
+            controltools.rotate_curve( float(xRot), float(yRot), float(zRot), curve)
+            controltools.scale_curve(float(xScale), float(yScale), float(zScale), curve)
             if freeze:
-                controltools.co_freeze_transforms(curve)
-            controltools.co_name_curve(name, curve)
+                controltools.freeze_transforms(curve)
+            controltools.name_curve(name, curve)
         window.createAtOriginClicked.connect(onCreateAtOrigin)
 
         def onAddShape(name):
-            controltools.co_cache_selected_curve(name)
+            controltools.cache_selected_curve(name)
             emit_libraryChanged()
         window.addShapeClicked.connect(onAddShape)
 
         def onRemoveShape(selection):
-            controltools.co_remove_curve(selection)
+            controltools.remove_curve(selection)
             emit_libraryChanged()
         window.removeShapeClicked.connect(onRemoveShape)
 
