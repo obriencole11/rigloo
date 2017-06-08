@@ -91,7 +91,7 @@ class Component():
             self.add_parent_space()
 
             # Snap the controls to the deform targets
-            self.snap()
+            self.zero()
 
             # Set the parentSpace
             self.setParentSpace(self.parentSpace, parentSpace=True)
@@ -105,13 +105,17 @@ class Component():
 
             return self.componentGroup
 
+    def zero(self):
+        # Sets the default localspacebuffer position
+        pass
+
     def snap(self):
         # Snap controls to the positions of the deform targets
         pass
 
-    def bake(self):
-        # Goes through every frame, snaps the controls and keys their position
-        pass
+    def bake(self, frame):
+
+        pmc.setKeyframe(self.mainControl, t=frame)
 
     def bind(self):
         # Apply the parent space
@@ -312,6 +316,24 @@ class Rig():
         for com in self.components:
             self.components[com].snap()
 
+    def bake(self, components=None):
+        frames = 10
+
+        # Goes through every frame, snaps the controls and keys their position
+        for frame in range(frames):
+            pmc.setCurrentTime(frame)
+            if components is not None:
+                for com in components:
+                    component = com
+                    component.snap()
+                    component.bake(frame)
+            else:
+                for com in self.components:
+                    component = self.components[com]
+                    component.snap()
+                    component.bake(frame)
+        pmc.setCurrentTime(1)
+
     def unbind(self):
         # For each component in the rig, unbind it
         for com in self.components:
@@ -412,10 +434,39 @@ class JointComponent(Component):
                 endJoint = target
         return endJoint
 
-    def snap(self):
+    def zero(self):
 
         # Set the local space buffer's orientation to the start joint's orientation
         self.localSpaceBuffer.setMatrix(self.endJoint.getMatrix(worldSpace=True), worldSpace=True)
+
+    def snap(self):
+
+        ''' TODO: Find a solution for FK Squash and Stretch
+        
+        # Grab the current Translation
+        currentPos = self.mainControl.getTranslation(space='world')
+
+        # Grab the target Translation
+        targetPos = self.mainControl.getTranslation(space='world')
+
+        # Calculate the difference in translation
+        translationDiff = targetPos - currentPos
+
+        # Move the main control into position
+        self.mainControl.translateBy(translationDiff)
+        '''
+
+        # Grab the inverse of the current rotation
+        currentRot = self.mainControl.getRotation().asQuaternion().invertIt()
+
+        # Grab the target rotation
+        targetRot = self.endJoint.getRotation().asQuaternion()
+
+        # Get the quaternion difference
+        difference = targetRot * currentRot
+
+        # Rotate the mainControl by that rotation
+        self.mainControl.rotateBy(difference)
 
     def bind(self):
 
@@ -671,7 +722,7 @@ class IKComponent(StretchJointComponent):
 
             self.bound = True
 
-    def snap(self):
+    def zero(self):
 
         # Set the local space buffer's orientation to the start joint's orientation
         #self.localSpaceBuffer.setMatrix(self.endJoint.getMatrix(worldSpace=True), worldSpace=True)
@@ -681,28 +732,16 @@ class IKComponent(StretchJointComponent):
         self.poleJoint = self.getPoleJoint()
 
         if not self.noFlipKnee:
-            # Grab the worldspace vectors of each points position
-            startPoint = self.startJoint.getTranslation(space='world')
-            elbowPoint = self.poleJoint.getTranslation(space='world')
-            endPoint = self.endJoint.getTranslation(space='world')
-
-            # Find the midpoint between the start and end joint
-            averagePoint = (startPoint + endPoint) / 2
-
-            # Find the direction from the midpoint to the elbow
-            elbowDirection = elbowPoint - averagePoint
-
-            # Multiply the direction by 2 to extend the range
-            polePoint = (elbowDirection * 5) + averagePoint
+            polePoint = self.getPolePoint()
 
             # Create empty transform and move it to the pole point
-            poleObject = pmc.group(empty=True, name=self.name + '_poleVector_srtBuffer')
+            poleObject = pmc.group(empty=True, name=self.name + '_poleVector_point')
             poleObject.setTranslation(polePoint, space='world')
             poleCurve = self.poleControlCurveType.create()
             pmc.rename(poleCurve, self.name + '_poleVector_ctrl')
             poleCurve.setMatrix(poleObject.getMatrix())
-            pmc.parent(poleObject, poleCurve)
-            pmc.parent(poleCurve, self.localSpaceBuffer)
+            pmc.parent(poleCurve, poleObject)
+            pmc.parent(poleObject, self.localSpaceBuffer)
 
             # Normalize the polepoint, to get the direction to the elbow
             direction = polePoint.normal()
@@ -715,6 +754,86 @@ class IKComponent(StretchJointComponent):
             poleObject.rotateBy(rotation)
 
             self.poleControl = poleObject
+
+    def snap(self):
+
+        #### Main Control Translation ####
+
+        # Grab the current Translation
+        #currentPos = self.mainControl.getTranslation(space='world')
+
+        # Grab the target Translation
+        #targetPos = self.endJoint.getTranslation(space='world')
+
+        # Calculate the difference in translation
+        #translationDiff = targetPos - currentPos
+
+        # Move the main control into position
+        #self.mainControl.translateBy(translationDiff)
+
+        targetM = self.endJoint.startJoint(worldSpace=True)
+
+        controlM = self.mainControl.getMatrix()
+
+        parentM = self.parentSpace.endJoint.getMatrix(worldSpace=True)
+
+        newM = targetM
+        self.mainControl.setMatrix(newM, worldSpace=True)
+
+        #### Pole Control Translation ####
+
+        # Grab the worldspace vectors of each points position
+        startPoint = self.startJoint.getTranslation(space='world')
+        elbowPoint = self.poleJoint.getTranslation(space='world')
+        endPoint = self.endJoint.getTranslation(space='world')
+
+        # Find the midpoint between the start and end joint
+        averagePoint = (startPoint + endPoint) / 2
+
+        # Find the direction from the midpoint to the elbow
+        elbowDirection = elbowPoint - averagePoint
+
+        # Multiply the direction by 2 to extend the range
+        polePoint = (elbowDirection * 5) + averagePoint
+
+        self.poleControl.setTranslation(polePoint, space='world')
+
+        #### Main Control Rotation ####
+
+        # Grab the inverse of the current rotation
+        #currentRot = self.mainControl.getRotation().asQuaternion().invertIt()
+
+        # Grab the target rotation
+        #targetRot = self.endJoint.getRotation(space='world').asQuaternion()
+
+        # Get the quaternion difference
+        #difference = targetRot * currentRot
+
+        # Rotate the mainControl by that rotation
+        #self.mainControl.rotateBy(difference)
+
+    def bake(self, frame):
+
+        JointComponent.bake(self, frame)
+        pmc.setKeyframe(self.poleControl, t=frame)
+
+    def getPolePoint(self):
+        # Grab the worldspace vectors of each points position
+        startPoint = self.startJoint.getTranslation(space='world')
+        elbowPoint = self.poleJoint.getTranslation(space='world')
+        endPoint = self.endJoint.getTranslation(space='world')
+
+        # Find the midpoint between the start and end joint
+        averagePoint = (startPoint + endPoint) / 2
+
+        # Find the direction from the midpoint to the elbow
+        elbowDirection = elbowPoint - averagePoint
+
+        # Multiply the direction by 2 to extend the range
+        polePoint = (elbowDirection * 5) + averagePoint
+
+        return polePoint
+
 
     def getPoleJoint(self):
 
@@ -735,7 +854,19 @@ class IKComponent(StretchJointComponent):
 
         return polejoint
 
-
+class MultiFKComponent(FKComponent):
+    '''
+    Represents a series of FK Controls.
+    '''
+    def __init__(self, extraDeformJoints, **kwargs):
+        FKComponent.__init__(self, **kwargs)
+        self.extraDeformJoints = [[]]
+        self.extraComponents = []
+        counter = 1
+        for jointList in self.extraDeformJoints:
+            com = FKComponent(name=self.name+str(counter), deformTargets=jointList, **kwargs)
+            self.extraComponents.append(com)
+            counter += 1
 
 
 #### Control Functions ####
@@ -855,23 +986,48 @@ def _test_rigtools():
 
     ethanRig.globalControl = ethanRig.root
 
+
     ethanRig.addComponent(FKComponent,
                           name='hip',
                           deformTargets=[hips],
                           mainControlType=defaultSpineControl)
     ethanRig.hip.setParentSpace(ethanRig.root, parentSpace=True, upRightSpace=True)
 
+    ethanRig.addComponent(FKComponent,
+                          name='thigh',
+                          deformTargets=[upLeg],
+                          mainControlType=defaultFKControl)
+    ethanRig.thigh.setParentSpace(ethanRig.hip, parentSpace=True, upRightSpace=True)
+
+    ethanRig.addComponent(FKComponent,
+                          name='knee',
+                          deformTargets=[leg],
+                          mainControlType=defaultFKControl)
+    ethanRig.knee.setParentSpace(ethanRig.thigh, parentSpace=True, upRightSpace=True)
+
+    ethanRig.addComponent(FKComponent,
+                          name='foot',
+                          deformTargets=[foot],
+                          mainControlType=defaultFKControl)
+    ethanRig.foot.setParentSpace(ethanRig.knee, parentSpace=True, upRightSpace=True)
+
     ethanRig.addComponent(IKComponent,
-                          name='leg',
-                          deformTargets=[upLeg,leg,foot],
-                          mainControlType=defaultIKControl,
-                          squashEnabled=True,
-                          stretchEnabled=True)
-    ethanRig.leg.setParentSpace(ethanRig.root, parentSpace=True, upRightSpace=True)
+                          name='rLeg',
+                          deformTargets=[rUpLeg,rLeg,rFoot],
+                          mainControlType=defaultIKControl)
+    ethanRig.rLeg.setParentSpace(ethanRig.hip, parentSpace=True, upRightSpace=True)
 
 
     ethanRig.build()
+
+    #pmc.setCurrentTime(5)
+    ethanRig.snap()
+    ethanRig.bake()
+    #ethanRig.bake([ethanRig.hip])
+    #ethanRig.bake([ethanRig.rLeg])
+    #ethanRig.rLeg.setParentSpace(ethanRig.hip, parentSpace=True, upRightSpace=True)
     ethanRig.bind()
+
 
     print ethanRig.metaData
 
