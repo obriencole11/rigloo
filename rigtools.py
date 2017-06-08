@@ -5,6 +5,18 @@ import nametools
 import controltools
 
 
+#### Utility Classes ####
+class Signal():
+    def __init__(self):
+        self._handlers=[]
+
+    def connect(self, handler):
+        self._handlers.append(handler)
+
+    def fire(self, *args, **kwargs):
+        for handler in self._handlers:
+            handler(**kwargs)
+
 #### Settings Classes ####
 class ControlCurve():
     def __init__(self, curveType='default', scale=1.0, color=dt.Color.blue):
@@ -45,7 +57,7 @@ defaultIKControl = ControlCurve(scale=10.0, curveType='cube')
 
 #### Control Classes ####
 
-class Component():
+class Component(object):
     '''
     The base class of all components.
     '''
@@ -54,31 +66,36 @@ class Component():
 
     def __init__(self, name='default', deformTargets=[], mainControlType=defaultControl,
                  aimAxis=dt.Vector(0,1,0), rig=None, globalControl=None, parentSpace=None,
-                 upRightSpace=None, **kwargs):
-        self.name = name
-        self.deformTargets = deformTargets
-        self.mainControlType = mainControlType
-        self.utilityNodes = {}
-        self.aimAxis = aimAxis
-        self.active = False
-        self.bound = False
-        self.constraints = []
-        self.rig = rig
+                 uprightSpace=None, **kwargs):
+        self._name = name
+        self._deformTargets = deformTargets
+        self._mainControlType = mainControlType
+        self._utilityNodes = {}
+        self._aimAxis = aimAxis
+        self._active = False
+        self._bound = False
+        self._constraints = []
+        self._rig = rig
         self._globalControl = globalControl
-        self.uprightSpace = upRightSpace
-        self.parentSpace = parentSpace
+        self._uprightSpace = uprightSpace
+        self._parentSpace = parentSpace
+
+        self.parentSpaceChanged = Signal()
+        self.globalControlChanged = Signal()
+
+        self.parentSpaceChanged.connect(self._resetParentSpace)
+
 
     #### Public Methods ####
 
     def build(self):
-
         if not self.active:
 
             # Create a component group to contain all component DAG nodes
             self.componentGroup = pmc.group(empty=True, name=self.name+'_com')
 
             # Create the main control curve
-            self.mainControl = self.mainControlType.create(upVector=self.aimAxis)
+            self._mainControl = self._mainControlType.create(upVector=self._aimAxis)
 
             # Create the local space for the control
             # This is better at preserving transforms than freezing transforms
@@ -88,20 +105,19 @@ class Component():
             pmc.parent(self.mainControl, self.localSpaceBuffer, relative=True)
 
             # Add parentSpace and uprightSpace groups and connections
-            self.add_parent_space()
+            self._addParentSpaceNodes()
 
             # Snap the controls to the deform targets
             self.zero()
 
             # Set the parentSpace
-            self.setParentSpace(self.parentSpace, parentSpace=True)
-            self.setParentSpace(self.uprightSpace, upRightSpace=True)
+            self._resetParentSpace()
 
             # Parent the parentSpaceBuffer to the component group
             pmc.parent(self.parentSpaceBuffer, self.componentGroup)
 
             # Set the 'active' bool to True
-            self.active = True
+            self._active = True
 
             return self.componentGroup
 
@@ -119,20 +135,19 @@ class Component():
 
     def bind(self):
         # Apply the parent space
-        self.setParentSpace(self.parentSpace, parentSpace=True)
-        self.setParentSpace(self.uprightSpace, upRightSpace=True)
+        self._resetParentSpace()
 
         # Apply a parent constraint to each deform target
-        for target in self.deformTargets:
-            self.constraints.append(pmc.parentConstraint(self.mainControl, target, mo=True))
-            self.constraints.append(pmc.scaleConstraint(self.mainControl, target, mo=True))
+        for target in self._deformTargets:
+            self._constraints.append(pmc.parentConstraint(self.mainControl, target, mo=True))
+            self._constraints.append(pmc.scaleConstraint(self.mainControl, target, mo=True))
 
     def unbind(self):
 
         if self.bound:
 
             # Delete all parent constraints
-            for constraint in self.constraints:
+            for constraint in self._constraints:
                 pmc.delete(constraint)
 
             # Mark this component as inactive
@@ -149,55 +164,12 @@ class Component():
             pmc.delete(self.componentGroup)
 
             # Mark this component as inactive
-            self.active = False
-
-    def setParentSpace(self, component, parentSpace=False, upRightSpace=False):
-
-        # Set the parent/upright space variables
-        if parentSpace:
-            self.parentSpace = component
-        if upRightSpace:
-            self.uprightSpace = component
-
-        # Only change the space if the skeleton is active
-        if self.active:
-
-            # Grab the localSpaceBuffer's current orientation
-            oldMatrix = self.localSpaceBuffer.getMatrix(worldSpace=True)
-
-            # If the component var is set to None, parent to worldspace
-            if component is None:
-
-                # Set the worldSpaceMatrix to the identity Matrix
-                identityMatrix = dt.Matrix()
-
-                if parentSpace:
-                    pmc.setAttr(self.utilityNodes['parentMultMatrixNode'].matrixIn[0], identityMatrix,
-                                force=True)
-                if upRightSpace:
-                    pmc.setAttr(self.utilityNodes['uprightMultMatrixNode'].matrixIn[0], identityMatrix,
-                                force=True)
-
-            # Otherwise set to the specified component
-            else:
-
-                if parentSpace:
-                    # Connect the components worldSpaceMatrix to this components multiply matrix utility node
-                    pmc.connectAttr(component.worldSpaceMatrix, self.utilityNodes['parentMultMatrixNode'].matrixIn[0],
-                                    force=True)
-
-                if upRightSpace:
-                    # Connect the components worldSpaceMatrix to this components multiply matrix utility node
-                    pmc.connectAttr(component.worldSpaceMatrix, self.utilityNodes['uprightMultMatrixNode'].matrixIn[0],
-                                    force=True)
-
-            # Move the localSpaceBuffer back into its original orientation
-            self.localSpaceBuffer.setMatrix(oldMatrix, worldSpace=True)
+            self._active = False
 
 
     #### Private Methods ####
 
-    def add_parent_space(self):
+    def _addParentSpaceNodes(self):
         '''
         Adds a parentspace group and an uprightSpace group.
         Adds utility nodes to create a modular parent relationship.
@@ -217,10 +189,10 @@ class Component():
         uprightDecomposeMatrixNode = pmc.createNode('decomposeMatrix', name=self.name + '_uprightSpace_decompMatrix')
         parentMultMatrixNode = pmc.createNode('multMatrix', name=self.name + '_parentSpace_matrix')
         parentDecomposeMatrixNode = pmc.createNode('decomposeMatrix', name=self.name + '_parentSpace_decompMatrix')
-        self.utilityNodes['uprightMultMatrixNode'] = uprightMultMatrixNode
-        self.utilityNodes['parentMultMatrixNode'] = parentMultMatrixNode
-        self.utilityNodes['uprightDecomposeMatrixNode'] = uprightDecomposeMatrixNode
-        self.utilityNodes['parentDecomposeMatrixNode'] = parentDecomposeMatrixNode
+        self._utilityNodes['uprightMultMatrixNode'] = uprightMultMatrixNode
+        self._utilityNodes['parentMultMatrixNode'] = parentMultMatrixNode
+        self._utilityNodes['uprightDecomposeMatrixNode'] = uprightDecomposeMatrixNode
+        self._utilityNodes['parentDecomposeMatrixNode'] = parentDecomposeMatrixNode
 
         # For now set the parentSpace and upright space to world (The identity Matrix)
         # Then set the parentSpace variable to none
@@ -246,11 +218,54 @@ class Component():
         # This will allow the curves to scale with the global control
         pmc.connectAttr(parentDecomposeMatrixNode.outputScale, self.parentSpaceBuffer.scale)
 
+    def _resetParentSpace(self):
 
-    #### Outputs ####
+        # Only change the space if the skeleton is active
+        if self.active:
+
+            # Grab the localSpaceBuffer's current orientation
+            oldMatrix = self.localSpaceBuffer.getMatrix(worldSpace=True)
+
+            # If uprightSpace is set to None, parent to worldSpace
+            if self._uprightSpace is None:
+
+                # Set the worldSpaceMatrix to the identity Matrix
+                identityMatrix = dt.Matrix()
+
+                pmc.setAttr(self._utilityNodes['uprightMultMatrixNode'].matrixIn[0], identityMatrix,
+                                force=True)
+            else:
+                # Connect the components worldSpaceMatrix to this components multiply matrix utility node
+                pmc.connectAttr(self._uprightSpace.worldSpaceMatrix,
+                                self._utilityNodes['uprightMultMatrixNode'].matrixIn[0],
+                                force=True)
+
+            if self._parentSpace is None:
+
+                # Set the worldSpaceMatrix to the identity Matrix
+                identityMatrix = dt.Matrix()
+
+                pmc.setAttr(self._utilityNodes['parentMultMatrixNode'].matrixIn[0], identityMatrix,
+                        force=True)
+            else:
+                # Connect the components worldSpaceMatrix to this components multiply matrix utility node
+                pmc.connectAttr(self._parentSpace.worldSpaceMatrix,
+                                self._utilityNodes['parentMultMatrixNode'].matrixIn[0],
+                                force=True)
+
+            # Move the localSpaceBuffer back into its original orientation
+            self.localSpaceBuffer.setMatrix(oldMatrix, worldSpace=True)
 
 
-    #### Read-Only Properties ####
+    #### Public Properties ####
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def active(self):
+        return self._active
 
     @property
     def worldSpaceMatrix(self):
@@ -268,14 +283,14 @@ class Component():
         data.append('')
         data.append('#####  ' + self.name + '  #####')
         data.append('Component Type: ' + str(self.__class__))
-        data.append('Rig: ' + getName(self.rig))
+        data.append('Rig: ' + getName(self._rig))
         data.append('Global Controller: ' + getName(self._globalControl))
         data.append('Parent Space: ' + getName(self.parentSpace))
         data.append('Upright Space: ' + getName(self.uprightSpace))
-        data.append('Main Control Shape: ' + self.mainControlType.curveType)
-        data.append('Aim Axis: ' + str(self.aimAxis))
+        data.append('Main Control Shape: ' + self._mainControlType.curveType)
+        data.append('Aim Axis: ' + str(self._aimAxis))
         data.append('Deform Targets:')
-        for target in self.deformTargets:
+        for target in self._deformTargets:
             data.append("   - " + str(target))
 
         data.append('')
@@ -289,32 +304,70 @@ class Component():
     @globalControl.setter
     def globalControl(self, value):
         self._globalControl = value
+        self.globalControlChanged.fire(self)
 
-class Rig():
+    @property
+    def parentSpace(self):
+        return self._parentSpace
+
+    @parentSpace.setter
+    def parentSpace(self, value):
+        self._parentSpace = value
+        self.parentSpaceChanged.fire(self)
+
+    @property
+    def uprightSpace(self):
+        return self._uprightSpace
+
+    @uprightSpace.setter
+    def uprightSpace(self, value):
+        self._uprightSpace = value
+        self.parentSpaceChanged.fire(self)
+
+    @property
+    def uprightAndParentSpace(self):
+        return self._uprightSpace, self._parentSpace
+
+    @uprightAndParentSpace.setter
+    def uprightAndParentSpace(self, value):
+        self._uprightSpace = value
+        self._parentSpace = value
+        print "changed!"
+        self.parentSpaceChanged.fire(self)
+
+    @property
+    def mainControl(self):
+        return self._mainControl
+
+class Rig(object):
     def __init__(self, name='defaultRig'):
-        self.name = name
-        self.control = None
-        self.components = {}
+        self._name = name
+        self._control = None
+        self._components = {}
+        self._globalControl = None
+
+
+    #### Public Methods ####
 
     def build(self):
         # Create a master group for the rig
-        self.rigGroup = pmc.group(empty=True, name=self.name + '_rig')
+        self.rigGroup = pmc.group(empty=True, name=self._name + '_rig')
 
         # For each component in the rig, build it and parent it to the master group
-        for com in self.components:
-            self.components[com].globalControl = self.control
-            componentGroup = self.components[com].build()
+        for com in self._components:
+            self._components[com].globalControl = self._control
+            componentGroup = self._components[com].build()
             pmc.parent(componentGroup, self.rigGroup)
 
     def bind(self):
         # For each component in the rig, bind to its target
-        for com in self.components:
-            self.components[com].bind()
+        for com in self._components:
+            self._components[com].bind()
 
     def snap(self):
         # For each component in the rig, snap to its target
-        for com in self.components:
-            self.components[com].snap()
+        for com in self._components:
+            self._components[com].snap()
 
     def bake(self, components=None):
         frames = 10
@@ -328,22 +381,22 @@ class Rig():
                     component.snap()
                     component.bake(frame)
             else:
-                for com in self.components:
-                    component = self.components[com]
+                for com in self._components:
+                    component = self._components[com]
                     component.snap()
                     component.bake(frame)
         pmc.setCurrentTime(1)
 
     def unbind(self):
         # For each component in the rig, unbind it
-        for com in self.components:
-            self.components[com].unbind()
+        for com in self._components:
+            self._components[com].unbind()
 
     def delete(self):
 
         # For each component in the rig, remove it
-        for com in self.components:
-            self.components[com].remove()
+        for com in self._components:
+            self._components[com].remove()
 
         # Then delete the rig group
         pmc.delete(self.rigGroup)
@@ -351,31 +404,13 @@ class Rig():
     def addComponent(self, componentType, **kwargs):
 
         # Create the new component and add the rigs name to its name
-        component = componentType(rig=self, globalControl=self.globalControl, **kwargs)
+        component = componentType(rig=self, globalControl=self._globalControl, **kwargs)
 
         # Add the specified component to the rig
-        self.components[component.name] = component
+        self._components[component.name] = component
 
         # Add that component as an attribute to the class
         setattr(self, component.name, component)
-
-    @property
-    def metaData(self):
-        for com in self.components:
-            print self.components[com].metaData
-
-    @property
-    def globalControl(self):
-        return  self.control
-
-    @globalControl.setter
-    def globalControl(self, component):
-
-        self.control = component
-
-        # For each component, update its globalControl
-        for com in self.components:
-            com.globalControl = self.globalControl
 
     def removeComponent(self, name):
 
@@ -389,6 +424,28 @@ class Rig():
         # Remove the component from the component dictionary
         self.components[name] = None
 
+
+    #### Public Properties ####
+
+    @property
+    def metaData(self):
+        for com in self._components:
+            print self._components[com].metaData
+
+    @property
+    def globalControl(self):
+        return  self._globalControl
+
+    @globalControl.setter
+    def globalControl(self, value):
+
+        self._globalControl = value
+
+        # For each component, update its globalControl
+        for com in self._components:
+            self._components[com].globalControl = self._globalControl
+
+
 class JointComponent(Component):
     '''
     Represents a component that specifically deforms joints
@@ -396,19 +453,22 @@ class JointComponent(Component):
 
     def __init__(self, aimAxis=dt.Vector(1,0,0), **kwargs):
         Component.__init__(self, aimAxis=aimAxis, **kwargs)
-        self.startJoint = self.getStartJoint()
-        self.endJoint = self.getEndJoint()
+        self._startJoint = self._getStartJoint()
+        self._endJoint = self._getEndJoint()
 
-    def getStartJoint(self):
+
+    #### private methods ####
+
+    def _getStartJoint(self):
 
         startJoint = None
 
         # Loop through deform joints
         # Return the joint who does not have a parent in the list
-        for target in self.deformTargets:
+        for target in self._deformTargets:
             parents = []
 
-            for otherTarget in self.deformTargets:
+            for otherTarget in self._deformTargets:
                 if otherTarget.isParentOf(target):
                     parents.append(otherTarget)
 
@@ -417,16 +477,16 @@ class JointComponent(Component):
                 break
         return startJoint
 
-    def getEndJoint(self):
+    def _getEndJoint(self):
 
         endJoint = None
 
         # Loop through joint targets
         # Return the joint does not have any children
-        for target in self.deformTargets:
+        for target in self._deformTargets:
             children = []
 
-            for otherTarget in self.deformTargets:
+            for otherTarget in self._deformTargets:
                 if otherTarget.isChildOf(target):
                     children.append(otherTarget)
 
@@ -434,10 +494,13 @@ class JointComponent(Component):
                 endJoint = target
         return endJoint
 
+
+    #### public methods ####
+
     def zero(self):
 
         # Set the local space buffer's orientation to the start joint's orientation
-        self.localSpaceBuffer.setMatrix(self.endJoint.getMatrix(worldSpace=True), worldSpace=True)
+        self.localSpaceBuffer.setMatrix(self._endJoint.getMatrix(worldSpace=True), worldSpace=True)
 
     def snap(self):
 
@@ -460,7 +523,7 @@ class JointComponent(Component):
         currentRot = self.mainControl.getRotation().asQuaternion().invertIt()
 
         # Grab the target rotation
-        targetRot = self.endJoint.getRotation().asQuaternion()
+        targetRot = self._endJoint.getRotation().asQuaternion()
 
         # Get the quaternion difference
         difference = targetRot * currentRot
@@ -470,59 +533,67 @@ class JointComponent(Component):
 
     def bind(self):
 
-        if not self.bound:
+        if not self._bound:
             # Set the parentSpace
-            self.setParentSpace(self.parentSpace, parentSpace=True)
-            self.setParentSpace(self.uprightSpace, upRightSpace=True)
+            self._resetParentSpace()
 
             # Constrain the startJoint to the mainControl
-            self.constraints.append(pmc.parentConstraint(self.mainControl, self.endJoint))
+            self._constraints.append(pmc.parentConstraint(self.mainControl, self._endJoint))
 
-            self.bound = True
+            self._bound = True
+
+
+    #### public properties ####
+
+    @property
+    def startJoint (self):
+        return self._startJoint
+
+    @property
+    def endJoint(self):
+        return  self._endJoint
 
 class StretchJointComponent(JointComponent):
     '''
-    Squash and stretch support for controls
+    A Joint Component that supports squash and stretch.
+    Doesn't nessesary have it active though.
     '''
 
     def __init__(self, stretchEnabled=False, squashEnabled=False, stretchScale=2.0,
                  stretchMin=0.0, **kwargs):
         JointComponent.__init__(self, **kwargs)
-        self.stretchEnabled = stretchEnabled
-        self.squashEnabled = squashEnabled
-        self.stretchScale = stretchScale
-        self.stretchMin = stretchMin
+        self._stretchEnabled = stretchEnabled
+        self._squashEnabled = squashEnabled
+        self._stretchScale = stretchScale
+        self._stretchMin = stretchMin
+
+        self.globalControlChanged.connect(self._resetSquashStretch)
 
 
     #### Private Methods ####
 
-    def getStretchJoints(self):
+    def _getStretchJoints(self):
 
         stretchJoints = []
 
         # Loop through deform joints
         # Return the joints with children in the list
-        for target in self.deformTargets:
-            for otherTarget in self.deformTargets:
+        for target in self._deformTargets:
+            for otherTarget in self._deformTargets:
                 if otherTarget.isChildOf(target):
                     stretchJoints.append(target)
                     break
 
         return stretchJoints
 
-    # Think about an alternative for this :-/
-    @Component.globalControl.setter
-    def globalControl(self, value):
-
-        # Set the private global control
-        self._globalControl = value
-
+    def _resetSquashStretch(self):
         # Update the squash and stretch nodes
         if self.active:
             pmc.connectAttr(self._globalControl.mainControl.inverseMatrix,
-                            self.utilityNodes['point1SpaceSwitch'].matrixIn[1], force=True)
+                            self._utilityNodes['point1SpaceSwitch'].matrixIn[1], force=True)
             pmc.connectAttr(self._globalControl.mainControl.inverseMatrix,
-                            self.utilityNodes['point2SpaceSwitch'].matrixIn[1], force=True)
+                            self._utilityNodes['point2SpaceSwitch'].matrixIn[1], force=True)
+
 
     #### Public Methods ####
 
@@ -545,19 +616,19 @@ class StretchJointComponent(JointComponent):
         startJointTranslateWorldMatrix = pmc.createNode('multMatrix', name=self.name+'_startJointTranslateMatrix_to_WorldMatrix')
 
         # Add utility nodes we care about into the utility nodes dictionary
-        self.utilityNodes['point1SpaceSwitch'] = point1SpaceSwitch
-        self.utilityNodes['point2SpaceSwitch'] = point2SpaceSwitch
-        self.utilityNodes['outMax'] = outputMax
-        self.utilityNodes['inverseOutput'] = inverseOutput
+        self._utilityNodes['point1SpaceSwitch'] = point1SpaceSwitch
+        self._utilityNodes['point2SpaceSwitch'] = point2SpaceSwitch
+        self._utilityNodes['outMax'] = outputMax
+        self._utilityNodes['inverseOutput'] = inverseOutput
 
         # Grab the components stretchJoints
-        self.stretchJoints = self.getStretchJoints()
+        self.stretchJoints = self._getStretchJoints()
 
         # Set the start joint
-        self.startJoint = self.getStartJoint()
+        self._startJoint = self._getStartJoint()
 
         # Set the end Joint
-        self.endJoint = self.getEndJoint()
+        self._endJoint = self._getEndJoint()
 
         # Calculate the max distance
         maxDistance = self.startJoint.getTranslation('world').distanceTo(
@@ -591,10 +662,10 @@ class StretchJointComponent(JointComponent):
 
         # Connect normalized distance to multiply node
         pmc.connectAttr(maxDistanceDiv.outFloat, scaleMult.floatA)
-        pmc.setAttr(scaleMult.floatB, self.stretchScale)
+        pmc.setAttr(scaleMult.floatB, self._stretchScale)
 
         # Connect scaled output to the max node
-        pmc.setAttr(outputMax.floatB, self.stretchMin)
+        pmc.setAttr(outputMax.floatB, self._stretchMin)
         pmc.connectAttr(scaleMult.outFloat, outputMax.floatA)
 
         # Connect maxed output to the inverse node
@@ -603,22 +674,23 @@ class StretchJointComponent(JointComponent):
 
     def bind(self):
 
-        # Connect the global control, implementation here is kinda bad, maybe change later
-        pmc.connectAttr(self._globalControl.mainControl.inverseMatrix,
-                        self.utilityNodes['point1SpaceSwitch'].matrixIn[1], force=True)
-        pmc.connectAttr(self._globalControl.mainControl.inverseMatrix,
-                        self.utilityNodes['point2SpaceSwitch'].matrixIn[1], force=True)
+        if self._globalControl is not None:
+            # Connect the global control, implementation here is kinda bad, maybe change later
+            pmc.connectAttr(self._globalControl.mainControl.inverseMatrix,
+                            self._utilityNodes['point1SpaceSwitch'].matrixIn[1], force=True)
+            pmc.connectAttr(self._globalControl.mainControl.inverseMatrix,
+                            self._utilityNodes['point2SpaceSwitch'].matrixIn[1], force=True)
 
         # Connect to stretch joint scales
         for joint in self.stretchJoints:
             axis = (joint.scaleX, joint.scaleY, joint.scaleZ)
             for x in range(3):
-                if self.aimAxis[x] == 1:
+                if self._aimAxis[x] == 1:
                     if self.stretchEnabled:
-                        pmc.connectAttr(self.utilityNodes['outMax'].outFloat, axis[x])
+                        pmc.connectAttr(self._utilityNodes['outMax'].outFloat, axis[x])
                 else:
                     if self.squashEnabled:
-                        pmc.connectAttr(self.utilityNodes['inverseOutput'].outFloat, axis[x])
+                        pmc.connectAttr(self._utilityNodes['inverseOutput'].outFloat, axis[x])
 
     def unbind(self):
 
@@ -626,18 +698,51 @@ class StretchJointComponent(JointComponent):
         for joint in self.stretchJoints:
             axis = (joint.scaleX, joint.scaleY, joint.scaleZ)
             for x in range(3):
-                if self.aimAxis[x] == 1:
+                if self._aimAxis[x] == 1:
                     if self.stretchEnabled:
-                        pmc.disconnectAttr(self.utilityNodes['outMax'].outFloat, axis[x])
+                        pmc.disconnectAttr(self._utilityNodes['outMax'].outFloat, axis[x])
                 else:
                     if self.squashEnabled:
-                        pmc.disconnectAttr(self.utilityNodes['inverseOutput'].outFloat, axis[x])
+                        pmc.disconnectAttr(self._utilityNodes['inverseOutput'].outFloat, axis[x])
 
-    def enableSquashAndStretch(self, stretchEnabled=True, squashEnabled=True):
 
-        # Set the stretchEnabled and squashEnabled bools
-        self.stretchEnabled = stretchEnabled
-        self.squashEnabled = squashEnabled
+    #### public properties ####
+
+    @property
+    def stretchEnabled(self):
+        return self._stretchEnabled
+
+    @stretchEnabled.setter
+    def stretchEnabled(self, value):
+
+        self._stretchEnabled = value
+
+        # If the component is bound, bind squash and stretch
+        if self.bound:
+            self.build()
+
+    @property
+    def squashEnabled(self):
+        return  self._squashEnabled
+
+    @squashEnabled.setter
+    def squashEnabled(self, value):
+
+        self._squashEnabled = value
+
+        # If the component is bound, bind squash and stretch
+        if self.bound:
+            self.build()
+
+    @property
+    def squashAndStretchEnabled(self):
+        return self._squashEnabled, self._stretchEnabled
+
+    @squashAndStretchEnabled.setter
+    def squashAndStretchEnabled(self, value):
+
+        self._squashEnabled = value
+        self._stretchEnabled = value
 
         # If the component is bound, bind squash and stretch
         if self.bound:
@@ -645,8 +750,8 @@ class StretchJointComponent(JointComponent):
 
 class FKComponent(StretchJointComponent):
     '''
-    Represents a basic joint control. 
-    Features a target joint that is driven by the control curve.
+    Represents a basic FK control.
+    Might be useless? The name is nicer than saying "StretchJoint" when we mean FK
     '''
     def __init__(self, **kwargs):
         StretchJointComponent.__init__(self, stretchMin=0.0, **kwargs)
@@ -662,7 +767,7 @@ class FKComponent(StretchJointComponent):
 
     def bind(self):
 
-        if not self.bound:
+        if not self._bound:
 
             # Bind the mainControl
             JointComponent.bind(self)
@@ -679,8 +784,11 @@ class IKComponent(StretchJointComponent):
 
     def __init__(self, noFlipKnee=False, poleControlCurveType=defaultPoleControl, **kwargs):
         StretchJointComponent.__init__(self, stretchMin=1.0, **kwargs)
-        self.noFlipKnee = noFlipKnee
-        self.poleControlCurveType = poleControlCurveType
+        self._noFlipKnee = noFlipKnee
+        self._poleControlCurveType = poleControlCurveType
+
+
+    #### public methods ####
 
     def build(self):
         Component.build(self)
@@ -691,14 +799,13 @@ class IKComponent(StretchJointComponent):
 
     def bind(self):
 
-        if not self.bound:
+        if not self._bound:
 
             # Set the parentSpace
-            self.setParentSpace(self.parentSpace, parentSpace=True)
-            self.setParentSpace(self.uprightSpace, upRightSpace=True)
+            self._resetParentSpace()
 
             # Create the ikHandle and effector
-            self.handle, self.effector = pmc.ikHandle(sj=self.startJoint, ee=self.endJoint)
+            self.handle, self.effector = pmc.ikHandle(sj=self._startJoint, ee=self.endJoint)
 
             # Parent the handle to the main control
             pmc.parent(self.handle, self.mainControl)
@@ -712,15 +819,15 @@ class IKComponent(StretchJointComponent):
             pmc.connectAttr(self.mainControl.twist, self.handle.twist)
 
             # If not a no flip knee, constrain the polevector
-            if not self.noFlipKnee:
-                self.constraints.append(pmc.poleVectorConstraint(self.poleControl, self.handle))
+            if not self._noFlipKnee:
+                self._constraints.append(pmc.poleVectorConstraint(self.poleControl, self.handle))
 
             # Add the mainControl constraint
-            self.constraints.append( pmc.parentConstraint(self.mainControl, self.endJoint, st=('x','y','z'), mo=True) )
+            self._constraints.append( pmc.parentConstraint(self.mainControl, self.endJoint, st=('x','y','z'), mo=True) )
 
             StretchJointComponent.bind(self)
 
-            self.bound = True
+            self._bound = True
 
     def zero(self):
 
@@ -729,15 +836,15 @@ class IKComponent(StretchJointComponent):
         self.localSpaceBuffer.setTranslation(self.endJoint.getTranslation('world'))
 
         # Grab the knee
-        self.poleJoint = self.getPoleJoint()
+        self.poleJoint = self._getPoleJoint()
 
-        if not self.noFlipKnee:
-            polePoint = self.getPolePoint()
+        if not self._noFlipKnee:
+            polePoint = self._getPolePoint()
 
             # Create empty transform and move it to the pole point
             poleObject = pmc.group(empty=True, name=self.name + '_poleVector_point')
             poleObject.setTranslation(polePoint, space='world')
-            poleCurve = self.poleControlCurveType.create()
+            poleCurve = self._poleControlCurveType.create()
             pmc.rename(poleCurve, self.name + '_poleVector_ctrl')
             poleCurve.setMatrix(poleObject.getMatrix())
             pmc.parent(poleCurve, poleObject)
@@ -771,11 +878,11 @@ class IKComponent(StretchJointComponent):
         # Move the main control into position
         #self.mainControl.translateBy(translationDiff)
 
-        targetM = self.endJoint.startJoint(worldSpace=True)
+        targetM = self.endJoint.getMatrix(worldSpace=True)
 
         controlM = self.mainControl.getMatrix()
 
-        parentM = self.parentSpace.endJoint.getMatrix(worldSpace=True)
+        #parentM = self.parentSpace.endJoint.getMatrix(worldSpace=True)
 
         newM = targetM
         self.mainControl.setMatrix(newM, worldSpace=True)
@@ -817,7 +924,10 @@ class IKComponent(StretchJointComponent):
         JointComponent.bake(self, frame)
         pmc.setKeyframe(self.poleControl, t=frame)
 
-    def getPolePoint(self):
+
+    #### private methods ####
+
+    def _getPolePoint(self):
         # Grab the worldspace vectors of each points position
         startPoint = self.startJoint.getTranslation(space='world')
         elbowPoint = self.poleJoint.getTranslation(space='world')
@@ -834,16 +944,15 @@ class IKComponent(StretchJointComponent):
 
         return polePoint
 
-
-    def getPoleJoint(self):
+    def _getPoleJoint(self):
 
         polejoint = None
 
         # For each deform target return the one that has a parent and child in the list
-        for target in self.deformTargets:
+        for target in self._deformTargets:
             parents = []
             children = []
-            for otherTarget in self.deformTargets:
+            for otherTarget in self._deformTargets:
                 if otherTarget.isParentOf(target):
                     parents.append(otherTarget)
                 if otherTarget.isChildOf(target):
@@ -853,6 +962,7 @@ class IKComponent(StretchJointComponent):
                 break
 
         return polejoint
+
 
 class MultiFKComponent(FKComponent):
     '''
@@ -991,38 +1101,38 @@ def _test_rigtools():
                           name='hip',
                           deformTargets=[hips],
                           mainControlType=defaultSpineControl)
-    ethanRig.hip.setParentSpace(ethanRig.root, parentSpace=True, upRightSpace=True)
+    ethanRig.hip.uprightAndParentSpace = ethanRig.root
 
     ethanRig.addComponent(FKComponent,
                           name='thigh',
                           deformTargets=[upLeg],
                           mainControlType=defaultFKControl)
-    ethanRig.thigh.setParentSpace(ethanRig.hip, parentSpace=True, upRightSpace=True)
+    ethanRig.thigh.uprightAndParentSpace = ethanRig.hip
 
     ethanRig.addComponent(FKComponent,
                           name='knee',
                           deformTargets=[leg],
                           mainControlType=defaultFKControl)
-    ethanRig.knee.setParentSpace(ethanRig.thigh, parentSpace=True, upRightSpace=True)
+    ethanRig.knee.uprightAndParentSpace = ethanRig.thigh
 
     ethanRig.addComponent(FKComponent,
                           name='foot',
                           deformTargets=[foot],
                           mainControlType=defaultFKControl)
-    ethanRig.foot.setParentSpace(ethanRig.knee, parentSpace=True, upRightSpace=True)
+    ethanRig.foot.uprightAndParentSpace = ethanRig.knee
 
     ethanRig.addComponent(IKComponent,
                           name='rLeg',
                           deformTargets=[rUpLeg,rLeg,rFoot],
                           mainControlType=defaultIKControl)
-    ethanRig.rLeg.setParentSpace(ethanRig.hip, parentSpace=True, upRightSpace=True)
+    ethanRig.rLeg.uprightAndParentSpace = ethanRig.hip
 
 
     ethanRig.build()
 
     #pmc.setCurrentTime(5)
     ethanRig.snap()
-    ethanRig.bake()
+    #ethanRig.bake()
     #ethanRig.bake([ethanRig.hip])
     #ethanRig.bake([ethanRig.rLeg])
     #ethanRig.rLeg.setParentSpace(ethanRig.hip, parentSpace=True, upRightSpace=True)
