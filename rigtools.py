@@ -1,7 +1,5 @@
 import pymel.core as pmc
 import pymel.core.datatypes as dt
-import skeltools
-import nametools
 import controltools
 
 
@@ -134,18 +132,27 @@ class Component(object):
 
         pmc.setKeyframe(self.mainControl, t=frame)
 
-    def bind(self):
-        # Apply the parent space
-        self._resetParentSpace()
+    def bakeDeforms(self, frame):
 
-        # Apply a parent constraint to each deform target
-        for target in self._deformTargets:
-            self._constraints.append(pmc.parentConstraint(self._mainControl, target, mo=True))
-            self._constraints.append(pmc.scaleConstraint(self._mainControl, target))
+        # Key every deform target
+        for joint in self._deformTargets:
+            pmc.setKeyframe(joint, t=frame)
+
+    def bind(self):
+        if not self._bound:
+            # Apply the parent space
+            self._resetParentSpace()
+
+            # Apply a parent constraint to each deform target
+            for target in self._deformTargets:
+                self._constraints.append(pmc.parentConstraint(self._mainControl, target, mo=True))
+                self._constraints.append(pmc.scaleConstraint(self._mainControl, target))
+
+            self._bound = True
 
     def unbind(self):
 
-        if self.bound:
+        if self._bound:
 
             # Delete all parent constraints
             for constraint in self._constraints:
@@ -156,10 +163,10 @@ class Component(object):
 
     def remove(self):
 
-        if self.bound:
+        if self._bound:
             self.unbind()
 
-        if self.active:
+        if self._active:
 
             # Delete the component group
             pmc.delete(self.componentGroup)
@@ -348,7 +355,7 @@ class Rig(object):
         self._control = None
         self._components = {}
         self._globalControl = None
-
+        self._bound = False
 
     #### Public Methods ####
 
@@ -367,20 +374,22 @@ class Rig(object):
             self._components[com].parent()
 
     def bind(self):
-        # For each component in the rig, bind to its target
-        for com in self._components:
-            self._components[com].bind()
+        if not self._bound:
+            # For each component in the rig, bind to its target
+            for com in self._components:
+                self._components[com].bind()
+
+            self._bound = True
 
     def snap(self):
         # For each component in the rig, snap to its target
         for com in self._components:
             self._components[com].snap()
 
-    def bake(self, components=None):
-        frames = 10
+    def bake(self, components=None, frameRange=10):
 
         # Goes through every frame, snaps the controls and keys their position
-        for frame in range(frames):
+        for frame in range(frameRange):
             pmc.setCurrentTime(frame)
             if components is not None:
                 for com in components:
@@ -394,12 +403,31 @@ class Rig(object):
                     component.bake(frame)
         pmc.setCurrentTime(1)
 
+    def bakeDeforms(self, components=None, frameRange=10):
+
+        # Goes through every frame, snaps the controls and keys their position
+        for frame in range(frameRange):
+            pmc.setCurrentTime(frame)
+            if components is not None:
+                for com in components:
+                    self._components[com].bakeDeforms(frame)
+            else:
+                for com in self._components:
+                    self._components[com].bakeDeforms(frame)
+        pmc.setCurrentTime(1)
+
     def unbind(self):
-        # For each component in the rig, unbind it
-        for com in self._components:
-            self._components[com].unbind()
+        if self._bound:
+            # For each component in the rig, unbind it
+            for com in self._components:
+                self._components[com].unbind()
+
+            self._bound = False
 
     def delete(self):
+
+        if self._bound:
+            self.unbind()
 
         # For each component in the rig, remove it
         for com in self._components:
@@ -564,7 +592,7 @@ class JointComponent(Component):
             self._resetParentSpace()
 
             # Constrain the startJoint to the mainControl
-            self._constraints.append(pmc.parentConstraint(self.mainControl, self._endJoint))
+            self._constraints.append(pmc.parentConstraint(self.mainControl, self._endJoint, name=self.name+'_mainControlConstraint'))
 
             self._bound = True
 
@@ -697,33 +725,43 @@ class StretchJointComponent(JointComponent):
         pmc.connectAttr(outputMax.outFloat, inverseOutput.floatB)
 
     def bind(self):
+        if self._bound:
+            # Connect the global control
+            self._resetSquashStretch()
 
-        # Connect the global control
-        self._resetSquashStretch()
+            # Connect to stretch joint scales
+            for joint in self.stretchJoints:
+                axis = (joint.scaleX, joint.scaleY, joint.scaleZ)
+                for x in range(3):
+                    if self._aimAxis[x] == 1:
+                        if self.stretchEnabled:
+                            pmc.connectAttr(self._utilityNodes['outMax'].outFloat, axis[x], force=True)
+                    else:
+                        if self.squashEnabled:
+                            pmc.connectAttr(self._utilityNodes['inverseOutput'].outFloat, axis[x], force=True)
 
-        # Connect to stretch joint scales
-        for joint in self.stretchJoints:
-            axis = (joint.scaleX, joint.scaleY, joint.scaleZ)
-            for x in range(3):
-                if self._aimAxis[x] == 1:
-                    if self.stretchEnabled:
-                        pmc.connectAttr(self._utilityNodes['outMax'].outFloat, axis[x], force=True)
-                else:
-                    if self.squashEnabled:
-                        pmc.connectAttr(self._utilityNodes['inverseOutput'].outFloat, axis[x], force=True)
+            self._bound = True
 
     def unbind(self):
+        if self._bound:
+            # Disconnect stretchJoint scales
+            for joint in self.stretchJoints:
+                axis = (joint.scaleX, joint.scaleY, joint.scaleZ)
+                for x in range(3):
+                    if self._aimAxis[x] == 1:
+                        try:
+                            pmc.disconnectAttr(self._utilityNodes['outMax'].outFloat, axis[x])
+                        except RuntimeError:
+                            pass
+                    else:
+                        try:
+                            pmc.disconnectAttr(self._utilityNodes['inverseOutput'].outFloat, axis[x])
+                        except RuntimeError:
+                            pass
 
-        # Disconnect stretchJoint scales
-        for joint in self.stretchJoints:
-            axis = (joint.scaleX, joint.scaleY, joint.scaleZ)
-            for x in range(3):
-                if self._aimAxis[x] == 1:
-                    if self.stretchEnabled:
-                        pmc.disconnectAttr(self._utilityNodes['outMax'].outFloat, axis[x])
-                else:
-                    if self.squashEnabled:
-                        pmc.disconnectAttr(self._utilityNodes['inverseOutput'].outFloat, axis[x])
+            JointComponent.unbind(self)
+
+            self._bound = False
 
 
     #### public properties ####
@@ -825,29 +863,32 @@ class IKComponent(StretchJointComponent):
             self._resetParentSpace()
 
             # Create the ikHandle and effector
-            self.handle, self.effector = pmc.ikHandle(sj=self._startJoint, ee=self.endJoint)
+            self._handle, self._effector = pmc.ikHandle(sj=self._startJoint, ee=self.endJoint)
 
             # Parent the handle to the main control
-            pmc.parent(self.handle, self.mainControl)
+            pmc.parent(self._handle, self.mainControl)
 
             # Rename the handle and effector
-            pmc.rename(self.handle, self.name + '_handle')
-            pmc.rename(self.effector, self.name + '_effector')
+            pmc.rename(self._handle, self.name + '_handle')
+            pmc.rename(self._effector, self.name + '_effector')
 
             # Add a twist attribute to the main control and connect it to the handles twist
             pmc.addAttr(self.mainControl, ln='twist', at='double', k=True)
-            pmc.connectAttr(self.mainControl.twist, self.handle.twist)
+            pmc.connectAttr(self.mainControl.twist, self._handle.twist)
 
             # If not a no flip knee, constrain the polevector
             if not self._noFlipKnee:
-                self._constraints.append(pmc.poleVectorConstraint(self.poleControl, self.handle))
+                self._constraints.append(pmc.poleVectorConstraint(self._poleControl, self._handle,
+                                                                  name=self.name+'_poleVectorConstraint'))
 
             # Add the mainControl constraint
-            self._constraints.append( pmc.parentConstraint(self.mainControl, self.endJoint, st=('x','y','z'), mo=True) )
+            self._constraints.append( pmc.parentConstraint(self.mainControl, self.endJoint, st=('x','y','z'),
+                                                           mo=True, name=self.name+'+mainControlConstraint'))
 
             StretchJointComponent.bind(self)
 
             self._bound = True
+
 
     def zero(self):
 
@@ -880,7 +921,7 @@ class IKComponent(StretchJointComponent):
             # Rotate the locator by that ammount
             poleObject.rotateBy(rotation)
 
-            self.poleControl = poleObject
+            self._poleControl = poleObject
 
     def snap(self):
 
@@ -908,14 +949,24 @@ class IKComponent(StretchJointComponent):
             # Multiply the direction by 2 to extend the range
             polePoint = (elbowDirection * 5) + averagePoint
 
-            self.poleControl.setTranslation(polePoint, space='world')
+            self._poleControl.setTranslation(polePoint, space='world')
 
     def bake(self, frame):
 
         JointComponent.bake(self, frame)
 
         if not self._noFlipKnee:
-            pmc.setKeyframe(self.poleControl, t=frame)
+            pmc.setKeyframe(self._poleControl, t=frame)
+
+    def unbind(self):
+
+        if self._bound:
+            StretchJointComponent.unbind(self)
+            pmc.delete(self._handle)
+
+            self._bound = False
+
+
 
 
     #### private methods ####
@@ -975,10 +1026,22 @@ class GlobalComponent(Component):
 
     def bind(self):
 
-        # Add a scale constraint to the scale target
-        self._constraints.append(pmc.scaleConstraint(self._mainControl, self._scaleControl))
+        if not self._bound:
 
-        Component.bind(self)
+            # Add a scale constraint to the scale target
+            self._constraints.append(pmc.scaleConstraint(self._mainControl, self._scaleControl,
+                                                         name=self.name+'_globalScaleConstraint'))
+
+            Component.bind(self)
+
+            self._bound = True
+
+    def unbind(self):
+
+        # Okay this is really silly but is works
+        pass
+
+
 
     @property
     def scaleControl(self):
@@ -1156,6 +1219,10 @@ def _test_rigtools():
     ethanRig.bind()
 
     print ethanRig.metaData
+
+    ethanRig.bakeDeforms()
+
+    ethanRig.delete()
 
     pmc.undoInfo(openChunk=False)
 
