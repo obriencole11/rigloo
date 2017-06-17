@@ -1,9 +1,50 @@
 import pymel.core as pmc
 import pymel.core.datatypes as dt
 import controltools
+import os
+import json
 
 
-#### Utility Classes ####
+##############################
+#       Rig Settings         #
+##############################
+
+COMPONENT_TYPES = {
+    'Basic FK Compoment': 'FKComponent',
+    'Basic IK Component': 'IKComponent',
+    'Global Component': 'GlobalComponent'
+}
+
+
+##############################
+#       Rig Storage          #
+##############################
+
+def getDir(rig):
+
+    return os.path.join(os.environ['MAYA_APP_DIR'], rig.name + '.json')
+
+def loadRig(rig):
+
+    try:
+        with open(getDir(rig)) as c:
+            return json.load(c)
+    except IOError:
+        return {}
+
+def saveRig(rig):
+
+    def jdefault(o):
+        return o.__dict__
+
+    with open(getDir(rig), 'w') as c:
+        json.dump(rig.data, c, default=jdefault, indent=4)
+
+
+##############################
+#     Utility Classes        #
+##############################
+
 class Signal():
     def __init__(self):
         self._handlers=[]
@@ -15,7 +56,11 @@ class Signal():
         for handler in self._handlers:
             handler(**kwargs)
 
-#### Settings Classes ####
+
+##############################
+#     Settings Classes       #
+##############################
+
 class ControlCurve():
     def __init__(self, curveType='default', scale=1.0, color=dt.Color.blue):
         self.curveType = curveType
@@ -53,7 +98,9 @@ defaultSpineControl = ControlCurve(scale=20.0)
 defaultIKControl = ControlCurve(scale=10.0, curveType='cube')
 
 
-#### Control Classes ####
+##############################
+#     Control Classes        #
+##############################
 
 class Component(object):
     '''
@@ -283,7 +330,28 @@ class Component(object):
             return None
 
     @property
-    def metaData(self):
+    def data(self):
+
+        def getName(target):
+            try:
+                return str(target.name)
+            except AttributeError:
+                return 'None'
+
+        arguments = {}
+
+        arguments['name'] = self.name
+        arguments['type'] = None
+        arguments['deformTargets'] = [str(target) for target in self._deformTargets]
+        arguments['controlTypes'] = self._mainControlType.curveType
+        arguments['aimAxis'] = [axis for axis in self._aimAxis]
+        arguments['parentSpace'] = getName(self.parentSpace)
+        arguments['uprightSpace'] = getName(self.uprightSpace)
+
+        return arguments
+
+    @property
+    def printData(self):
         def getName(target):
             try:
                 return str(target.name)
@@ -463,7 +531,22 @@ class Rig(object):
     #### Public Properties ####
 
     @property
-    def metaData(self):
+    def data(self):
+
+        # Create a return list
+        data = {}
+
+        # Grab mandatory arguments
+        data['name'] = self._name
+
+        # Iterate through components and store their data
+        for component in self._components:
+            data['components'].append(component.data)
+
+        return data
+
+    @property
+    def printData(self):
 
         def getName(target):
             try:
@@ -481,7 +564,7 @@ class Rig(object):
         print ('\n').join(data)
 
         for com in self._components:
-            print self._components[com].metaData
+            print self._components[com].printData
 
     @property
     def globalControl(self):
@@ -1062,7 +1145,10 @@ class MultiFKComponent(FKComponent):
             counter += 1
 
 
-#### Control Functions ####
+##############################
+#     Control Functions      #
+##############################
+
 def connect_transforms(input, output, translate=True, rotate=True, scale=True):
     '''
     Connects the transform attributes of one transform to another
@@ -1136,11 +1222,9 @@ def add_control_curve(transform, curveName='default', upVector=dt.Vector(0,1,0))
     return curve
 
 
-
-
-
-
-
+##############################
+#     Test Functions         #
+##############################
 
 def _test_rigtools():
     pmc.undoInfo(openChunk=True)
@@ -1227,256 +1311,3 @@ def _test_rigtools():
     pmc.undoInfo(openChunk=False)
 
 # from rigtools import rigtools; reload(rigtools); rigtools._test_rigtools()
-
-#### Legacy Squash and Stretch
-def add_squash_and_stretch_simple(control):
-
-    point1SpaceSwitch = pmc.createNode('multMatrix', name=control.name + '_P1_MM_NODE')
-    point2SpaceSwitch = pmc.createNode('multMatrix', name=control.name + '_P2_MM_NODE')
-    stretchMult = pmc.createNode('multiplyDivide', name=control.name + '_STR_MD_NODE')
-    squashMult = pmc.createNode('multiplyDivide', name=control.name + '_SQ_MD_NODE')
-    distanceBetween = pmc.createNode('distanceBetween', name=control.name + '_DIST_NODE')
-
-    pmc.connectAttr(control.stretchTarget.worldMatrix[0], point1SpaceSwitch.matrixIn[0])
-    pmc.connectAttr(control.root.control.inverseMatrix, point1SpaceSwitch.matrixIn[1])
-    pmc.connectAttr(control.control.worldMatrix[0], point2SpaceSwitch.matrixIn[0])
-    pmc.connectAttr(control.root.control.inverseMatrix, point2SpaceSwitch.matrixIn[1])
-
-    pmc.connectAttr(point1SpaceSwitch.matrixSum, distanceBetween.inMatrix1)
-    pmc.connectAttr(point2SpaceSwitch.matrixSum, distanceBetween.inMatrix2)
-
-    pmc.connectAttr(distanceBetween.distance, stretchMult.input1X)
-    pmc.setAttr(stretchMult.input2X, pmc.getAttr(distanceBetween.distance))
-    pmc.setAttr(stretchMult.operation, 'Divide')
-
-    pmc.connectAttr(stretchMult.outputX, squashMult.input2X)
-    pmc.setAttr(squashMult.input1X, 1.0)
-    pmc.setAttr(squashMult.operation, 'Divide')
-
-    pmc.connectAttr(stretchMult.outputX, control.stretchTarget.scaleX)
-    pmc.connectAttr(squashMult.outputX, control.stretchTarget.scaleY)
-    pmc.connectAttr(squashMult.outputX, control.stretchTarget.scaleZ)
-def add_squash_and_stretch_complex(control):
-
-    startJointSpaceSwitch = pmc.createNode('multMatrix', name=control.name + '_SJ_MM_NODE')
-    endJointSpaceSwitch = pmc.createNode('multMatrix', name=control.name + '_EJ_MM_NODE')
-    controlSpaceSwitch = pmc.createNode('multMatrix', name=control.name + '_CTRL_MM_NODE')
-    stretchMult = pmc.createNode('multiplyDivide', name=control.name + '_STR_MD_NODE')
-    squashMult = pmc.createNode('multiplyDivide', name=control.name + '_SQ_MD_NODE')
-    distanceToJoint = pmc.createNode('distanceBetween', name=control.name + '_JNT_DIST_NODE')
-    distanceToControl = pmc.createNode('distanceBetween', name=control.name + '_CTRL_DIST_NODE')
-
-    # Create a second chain for reference
-    newStartJoint = pmc.duplicate(control.endJoint, po=True, name=control.name + '_CTRL_JNT_START')[0]
-    pmc.parent(newStartJoint, world=True)
-    newPoleJoint = pmc.duplicate(control.poleJoint, po=True, name=control.name + '_CTRL_JNT_MID')[0]
-    pmc.parent(newPoleJoint, newStartJoint)
-    newEndJoint = pmc.duplicate(control.targetJoint, po=True, name=control.name + '_CTRL_JNT_END')[0]
-    pmc.parent(newEndJoint, newPoleJoint)
-    newHandle = pmc.ikHandle(sj=newStartJoint, ee=newEndJoint)[0]
-    pmc.parentConstraint(control.control, newHandle)
-    pmc.poleVectorConstraint(control.poleControl, newHandle)
-    pmc.connectAttr(control.control.twist, newHandle.twist)
-    newGroup = pmc.group(newHandle, newStartJoint, name=control.name + '_squashHelpers')
-    pmc.parentConstraint(control.globalControl.control, newGroup, mo=True)
-    pmc.scaleConstraint(control.parent.control, newGroup)
-
-    pmc.connectAttr(control.endJoint.worldMatrix[0], startJointSpaceSwitch.matrixIn[0])
-    pmc.connectAttr(control.globalControl.control.inverseMatrix, startJointSpaceSwitch.matrixIn[1])
-    pmc.connectAttr(newEndJoint.worldMatrix[0], endJointSpaceSwitch.matrixIn[0])
-    pmc.connectAttr(control.globalControl.control.inverseMatrix, endJointSpaceSwitch.matrixIn[1])
-    pmc.connectAttr(control.control.worldMatrix[0], controlSpaceSwitch.matrixIn[0])
-    pmc.connectAttr(control.globalControl.control.inverseMatrix, controlSpaceSwitch.matrixIn[1])
-
-    pmc.connectAttr(startJointSpaceSwitch.matrixSum, distanceToJoint.inMatrix1)
-    pmc.connectAttr(endJointSpaceSwitch.matrixSum, distanceToJoint.inMatrix2)
-    pmc.connectAttr(startJointSpaceSwitch.matrixSum, distanceToControl.inMatrix1)
-    pmc.connectAttr(controlSpaceSwitch.matrixSum, distanceToControl.inMatrix2)
-
-    pmc.connectAttr(distanceToControl.distance, stretchMult.input1X)
-    pmc.connectAttr(distanceToJoint.distance, stretchMult.input2X)
-    #pmc.setAttr(stretchMult.input2X, pmc.getAttr(distanceBetween.distance))
-    pmc.setAttr(stretchMult.operation, 'Divide')
-
-    pmc.connectAttr(stretchMult.outputX, squashMult.input2X)
-    pmc.setAttr(squashMult.input1X, 1.0)
-    pmc.setAttr(squashMult.operation, 'Divide')
-
-    for joint in control.stretchJoints:
-        pmc.connectAttr(stretchMult.outputX, joint.scaleX)
-        pmc.connectAttr(squashMult.outputX, joint.scaleY)
-        pmc.connectAttr(squashMult.outputX, joint.scaleZ)
-
-def connect_joint_to_controller(jointControl):
-    '''
-    For now this just adds a parent constraint from the controller to the joint
-    :param jointControl: The JointControl object.
-    :return: None
-    '''
-    constraint = pmc.parentConstraint(jointControl.control, jointControl.targetJoint, mo=True)
-    jointControl.constraint = constraint
-
-
-def switch_parent_space(control, parent=True, uprightParent=True):
-    oldMatrix = control.jointspace.getMatrix(worldSpace=True)
-
-    parentMultMatrixNode = control.utilityNodes['parentMultMatrixNode']
-    uprightMultMatrixNode = control.utilityNodes['uprightMultMatrixNode']
-
-    if parent:
-        if control.parent is not None:
-            pmc.connectAttr(control.parent.control.worldMatrix[0], parentMultMatrixNode.matrixIn[0], force=True)
-        else:
-            identityMatrix = dt.Matrix()
-            pmc.disconnectAttr(parentMultMatrixNode.matrixIn[0])
-            pmc.setAttr(parentMultMatrixNode.matrixIn[0], identityMatrix, force=True)
-
-    if uprightParent:
-        if control.uprightParent is not None:
-            pmc.connectAttr(control.uprightParent.control.worldMatrix[0], uprightMultMatrixNode.matrixIn[0], force=True)
-        else:
-            identityMatrix = dt.Matrix()
-            pmc.disconnectAttr(uprightMultMatrixNode.matrixIn[0])
-            pmc.setAttr(uprightMultMatrixNode.matrixIn[0], identityMatrix, force=True)
-
-    control.jointspace.setMatrix(oldMatrix, worldSpace=True)
-
-# Legacy classes:
-class GlobalControl(Component):
-    '''
-    Represents the global controller.
-    Features scale control.
-    '''
-    def __init__(self, scaleGroup, **kwargs):
-        Control.__init__(self, **kwargs)
-        self.scaleGroup = scaleGroup
-
-    def build(self):
-        Control.build(self)
-        pmc.parentConstraint(self.control, self.scaleGroup, mo=True)
-        pmc.connectAttr(self.control.scale, self.scaleGroup.scale)
-
-        return self.control
-
-    # Prototype Component to be updated later
-    class Component_Prototype():
-        '''
-        Represents a basic control component.
-        Contains input and output interfaces.
-        :param name: A string to describe the component as a whole.
-        :param mainControlType: The control string to use to generate the main control curve
-        :param deformTargets: Pynodes that the component will deform.
-        '''
-
-        def __init__(self, name='default', mainControlType='default', deformTargets=[], **kwargs):
-            self.name = name
-            self.mainControlType = mainControlType
-            self.deformTargets = deformTargets
-            self.deformJoints = []
-            self.inputs = {}
-            self.outputs = {}
-
-        def build(self):
-            # Create an empty group to house all parts of the component
-            self.comGroup = pmc.group(empty=True, name=self.name + '_com')
-
-            # Add an input, output, control and deform group
-            # These are just for organization purposes
-            self.inputGroup = pmc.group(empty=True, name='input')
-            pmc.parent(self.inputGroup, self.comGroup)
-            self.outputGroup = pmc.group(empty=True, name='output')
-            pmc.parent(self.outputGroup, self.comGroup)
-            self.controlGroup = pmc.group(empty=True, name='control')
-            pmc.parent(self.controlGroup, self.comGroup)
-            self.deformGroup = pmc.group(empty=True, name='deform')
-            pmc.parent(self.deformGroup, self.comGroup)
-
-            # Add a local world input
-            # This controls the local offset for the localSpace buffer
-            # Essentially zeroing out the control transforms
-            self.addInput('localWorld')
-
-            # Add two buffers and parent the localWorld input to them
-            # These will connect the parent space and upright space to the local world space
-            tBuffer = pmc.group(empty=True, name='localWorldSpace_tBuffer')
-            rBuffer = pmc.group(empty=True, name='localWorldSpace_rBuffer')
-            pmc.parent(self.getInput('localWorld'), rBuffer)
-            pmc.parent(self.getInput('uprightSpace'), self.getInput('parentSpace'))
-
-            # Add a parentspace and uprightspace input
-            # These controls the space the localSpace buffer inhabits
-            self.addInput('parentSpace')
-            self.addInput('uprightSpace')
-
-            # Add a main space output
-            # This will allow for other components to inhabit its space
-            self.addOutput('main_srt')
-
-            # For each deform target, create a deform output
-            lastJoint = None
-            for target in self.deformTargets:
-                # Create a joint to bind the deform target to
-                joint = pmc.joint(name=target.name() + '_srt')
-
-                # Match the targets transform, and constrain it to the joint
-                joint.setMatrix(target.getMatrix(worldSpace=True), worldSpace=True)
-                pmc.parentConstraint(joint, target)
-
-                # If this is not the first target, parent it to the previous
-                # Otherwise mark it as the startjoint
-                if lastJoint is not None:
-                    pmc.parent(joint, lastJoint)
-                else:
-                    pmc.parent(joint, self.deformGroup)
-                    self.startJoint = joint
-
-                # Add the joint to a joint list
-                self.deformJoints.append(joint)
-
-                # Set the lastTarget to the joint
-                lastTarget = joint
-
-            # Mark the final joint as the endJoint
-            self.endJoint = lastJoint
-
-            # Create a space buffer for the control
-            self.mainControlBuffer = pmc.group(empty=True, name=self.name + '_srtBuffer')
-            pmc.parent(self.mainControlBuffer, self.controlGroup)
-
-            # Connect the control space buffer to the local world input
-            connect_transforms(self.inputs['localWorld'], self.mainControlBuffer)
-
-            # Create the main control
-            self.mainControl = controltools.create_control_curve(self.mainControlType)
-            pmc.rename(self.mainControl, self.name + '_main_ctrl')
-            match_target_orientation(target=None, object=self.mainControl, upVector=dt.Vector(0, 1, 0))
-            pmc.parent(self.mainControl, self.mainControlBuffer, r=False)
-
-            # If there is a endJoint, move the localWorldGroup to that worldPosition
-            # Otherwise
-            # if self.endJoint is not None:
-            # self.getInput('localWorld').setMatrix(self.endJoint.getMatrix(worldSpace=True), worldSpace=True)
-
-        def addInput(self, inputName):
-            # Create an empty group to house input properties
-            input = pmc.group(empty=True, name=inputName)
-            self.inputs[inputName] = input
-            pmc.parent(input, self.inputGroup)
-
-            return input
-
-        def addOutput(self, outputName):
-            # Create an empty group to house output properties
-            output = pmc.group(empty=True, name=outputName)
-            self.outputs[outputName] = output
-            pmc.parent(output, self.outputGroup)
-
-            return output
-
-        def getInput(self, inputName):
-            input = None
-            try:
-                input = self.inputs[inputName]
-            except KeyError:
-                raise
-            return input

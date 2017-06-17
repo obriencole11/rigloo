@@ -127,6 +127,7 @@ class MainController(QtCore.QObject):
     def updateData(self):
         pass
 
+
 class TestController(MainController):
     '''
     A class inheriting from the standard controller setup for testing without a model.
