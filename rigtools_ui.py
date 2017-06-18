@@ -12,18 +12,11 @@ logger = logging.getLogger(__name__)
 # Create a formatter for all log statements
 formatter = logging.Formatter('%(name)s:%(message)s')
 
-# Create a handler for file logging
-file_handler = logging.FileHandler('rigtools_ui.log')
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(formatter)
-
 # Create a handler for logging to the console
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
 stream_handler.setLevel(logging.DEBUG)
 
-# By default, just add the file logging handler
-logger.addHandler(file_handler)
 
 ##############################
 #       UI Controllers       #
@@ -879,6 +872,14 @@ def _test():
     '''
     Tests the ui
     '''
+
+    # Create a handler for file logging
+    file_handler = logging.FileHandler('rigtools_ui.log')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+
+    # By default, just add the file logging handler
+    logger.addHandler(file_handler)
 
     # Enable logging to the console
     #logger.addHandler(stream_handler)

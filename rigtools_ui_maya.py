@@ -2,12 +2,14 @@ import rigtools
 import rigtools_ui as ui
 import controltools
 from Qt import QtCore, QtWidgets
-from QtCore import Slot, Signal
+from Qt.QtCore import Slot, Signal
 
 class MayaController(ui.MainController):
 
+    _rig = None
+
     def __init__(self, window, parent=None):
-        ui.MainController.__init__(self, window, parent)
+        ui.MainController.__init__(self, window)
 
 
     #### Public Properties ####
@@ -113,7 +115,9 @@ def show():
         window = ui.MainComponentWindow()
 
         # Create the controller
-        controller = MayaController(window, mayaWindow)
+        controller = MayaController(window)
 
     # Show the window
     window.show()
+
+# from rigtools import rigtools_ui_maya; reload(rigtools_ui_maya); rigtools_ui_maya.show()
