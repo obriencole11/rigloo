@@ -16,12 +16,6 @@ COMPONENT_TYPES = {
     'Global Component': 'GlobalComponent'
 }
 
-
-##############################
-#       Rig Storage          #
-##############################
-
-
 ##############################
 #     Utility Classes        #
 ##############################
@@ -435,7 +429,6 @@ class Component(object):
     @property
     def mainControl(self):
         return self._mainControl
-
 
 
 class Rig(object):

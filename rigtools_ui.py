@@ -35,11 +35,14 @@ class MainController(QtCore.QObject):
     onUpdateBakeStatus = Signal(bool)
     onUpdateBindStatus = Signal(bool)
 
-    def __init__(self, window):
+    def __init__(self, window, model):
         QtCore.QObject.__init__(self)
 
         # Grab a reference to the main window
         self.mainWindow = window
+
+        # Grab a reference to the model
+        self.model = model
 
         window.rig = self.rig
         window.components = self.components
@@ -125,15 +128,20 @@ class TestController(MainController):
     A class inheriting from the standard controller setup for testing without a model.
     '''
 
-    _rig = {
-        'name': 'ethan',
-        'components': [
+    def __init__(self, window):
+        MainController.__init__(self, window)
+
+        self._built = False
+        self._bound = False
+        self._baked = False
+
+        self._componentdata = [
             {
                 'type': 'FKComponent',
                 'name': 'hip_M',
                 'deformTargets': ['ethan_hips_M'],
                 'mainControlType': 'circle',
-                'aimAxis': [1,0,0],
+                'aimAxis': [1, 0, 0],
                 'parentSpace': None,
                 'uprightSpace': None
             },
@@ -142,19 +150,11 @@ class TestController(MainController):
                 'name': 'leg_L',
                 'deformTargets': ['ethan_thigh_L', 'ethan_knee_L', 'ethan_foot_L'],
                 'mainControlType': 'cube',
-                'aimAxis': [1,0,0],
+                'aimAxis': [1, 0, 0],
                 'parentSpace': 'hip',
                 'uprightSpace': 'hip'
             }
         ]
-    }
-
-    def __init__(self, window):
-        MainController.__init__(self, window)
-
-        self._built = False
-        self._bound = False
-        self._baked = False
 
     #### Private Methods ####
 
