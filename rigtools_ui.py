@@ -11,7 +11,7 @@ import uuid
 logger = logging.getLogger(__name__)
 
 # Create a formatter for all log statements
-formatter = logging.Formatter('%(name)s:%(message)s')
+formatter = logging.Formatter('%(levelname)s:%(message)s')
 
 # Create a handler for logging to the console
 stream_handler = logging.StreamHandler()
@@ -75,16 +75,21 @@ class BaseController(QtCore.QObject):
         # Then refresh the view
         raise NotImplementedError
 
-    @Slot(str)
-    def createRig(self, rigName):
+    @Slot()
+    def createRig(self):
         # Tells the model to create a rig with the specified name
         # Tells the view to show the componentData widget and refresh the components
         raise NotImplementedError
 
-    @Slot(str, str)
-    def loadRig(self, rigName, rigDir):
+    @Slot()
+    def loadRig(self):
         # Tells the model to load the specified rig
         # tells the view to show the componentData and refresh the components
+        raise NotImplementedError
+
+    @Slot()
+    def saveRig(self):
+        # Saves the active rig to the model's data
         raise NotImplementedError
 
     @Slot()
@@ -150,23 +155,14 @@ class BaseController(QtCore.QObject):
     def activeRig(self, value):
         self._activeRig = value
 
+class ViewController(BaseController):
+    '''
+    A Controller that interacts with the view.
+    Overrides commands that pertain to the view.
+    '''
 
-class TestViewController(BaseController):
-
-    def __init__(self, window, componentData, controlTypeData, componentTypeData):
-        BaseController.__init__(self, window, None)
-
-        # For testing, this will be the rig data
-        self._componentData = componentData
-
-        # Also setup some type data
-        self._controlTypeData = controlTypeData
-        self._componentTypeData = componentTypeData
-
-        # Setup the state variables
-        self._bound = False
-        self._baked = False
-        self._built = False
+    def __init__(self, window, model):
+        BaseController.__init__(self, window, model)
 
         # Connect controller signals to view slots
         self.onRefreshComponents.connect(window.refreshComponentWidgets)
@@ -188,6 +184,35 @@ class TestViewController(BaseController):
         window.onRefreshRigClicked.connect(self.refreshRig)
         window.onBindRigClicked.connect(self.bindRig)
 
+class TestViewController(ViewController):
+
+    def __init__(self, window, componentData, controlTypeData, componentTypeData):
+        ViewController.__init__(self, window, None)
+
+        # For testing, this will be the rig data
+        self._componentData = componentData
+
+        # Also setup some type data
+        self._controlTypeData = controlTypeData
+        self._componentTypeData = componentTypeData
+
+        # Setup the state variables
+        self._bound = False
+        self._baked = False
+        self._built = False
+
+        # This stores active rigs
+        self.activeRig = 'defaultRig'
+        self.rigs = {'defaultRig' : componentData}
+
+    #### Private Methods ####
+
+    def _refreshView(self):
+        # Update the view's componentData
+        # Tell the view to regenerate components
+        self.onRefreshComponents.emit(self._componentData)
+        self.onComponentTypeDataUpdated.emit(self._componentTypeData)
+        self.onControlTypeDataUpdated.emit(self._controlTypeData)
 
     ##### View Slots #####
 
@@ -236,26 +261,36 @@ class TestViewController(BaseController):
     def addSelected(self, id):
         # Adds selected joints to the specified component
         # Then refresh the view
-        self._componentData[id]['deformJoints'].append(['newSelectedJoint'])
+        logger.info('Test View Controller: addSelected Signal received. Value: ' + id)
+
+        self._componentData[id]['deformTargets'].append('newSelectedJoint')
+        self._refreshView()
 
     @Slot()
     def createRig(self):
         # Tells the model to create a rig with the specified name
         # Set that rig as the current rig
         # Tells the view to show the componentData widget and refresh the components
-        rigName = 'defaultRig'
+        rigName = 'newRig'
         self._componentData.clear()
+        self.rigs[rigName] = self._componentData
         self.activeRig = rigName
         self.onNewRig.emit()
         self._refreshView()
 
-    @Slot(str, str)
-    def loadRig(self, rigName, rigDir):
+    @Slot()
+    def loadRig(self):
         # Tells the model to load the specified rig
         # tells the view to show the componentData and refresh the components
         self.activeRig = 'defaultRig'
+        self._componentData = self.rigs[self.activeRig]
         self.onNewRig.emit()
         self._refreshView()
+
+    @Slot()
+    def saveRig(self):
+        # Saves the active rig to the model's data
+        self.rigs[self.activeRig] = self._componentData
 
     @Slot()
     def buildRig(self):
@@ -283,14 +318,6 @@ class TestViewController(BaseController):
         self._bound = not self.bound
         self.onBoundStateChange(self.bound)
 
-
-    #### Private Methods ####
-
-    def _refreshView(self):
-        # Update the view's componentData
-        # Tell the view to regenerate components
-        self.onRefreshComponents.emit(self._componentData)
-
     ##### private properties #####
 
     @property
@@ -313,285 +340,6 @@ class TestViewController(BaseController):
         # Return whether the rig is baked or not
         return self._baked
 
-
-class MainController(QtCore.QObject):
-    '''
-    The Base class for the ui controller, not intended for direct use.
-    '''
-
-    onComponentsUpdated = Signal()
-    onRigUpdated = Signal()
-    onControlsUpdated = Signal()
-
-
-    onUpdateBuildStatus = Signal(bool)
-    onUpdateBakeStatus = Signal(bool)
-    onUpdateBindStatus = Signal(bool)
-
-    def __init__(self, window, model):
-        QtCore.QObject.__init__(self)
-
-        # Grab a reference to the main window
-        self.mainWindow = window
-
-        # Grab a reference to the model
-        self.model = model
-
-        window.componentData = self.componentData
-        window.components = self.components
-        window.controls = self.controls
-
-        # Connect the windows signals to the controller slots
-        self.mainWindow.onBuildRig.connect(self.buildRig)
-        self.mainWindow.onBindRig.connect(self.bindRig)
-        self.mainWindow.onBakeRig.connect(self.bakeRig)
-        self.mainWindow.onRefreshRig.connect(self.refreshRig)
-
-        self.onUpdateBuildStatus.connect(self.mainWindow.updateBuildButton)
-        self.onUpdateBakeStatus.connect(self.mainWindow.updateBakeButton)
-        self.onUpdateBindStatus.connect(self.mainWindow.updateBindButton)
-
-        self.mainWindow.onAddComponent.connect(self.addComponent)
-        self.mainWindow.onAddSelected.connect(self.addSelected)
-        self.mainWindow.onUpdateData.connect(self.updateData)
-
-        # Connect the controller signals to the windows slots
-        self.onRigUpdated.connect(self.updateRig)
-
-        # Fill the ui with initial components
-        self.onRigUpdated.emit()
-
-
-    #### Public Properties ####
-
-    @property
-    def componentData(self):
-        return {}
-
-    @componentData.setter
-    def componentData(self, value):
-        pass
-
-    @property
-    def components(self):
-        return {}
-
-    @property
-    def controls(self):
-        return {}
-
-
-    #### Slots ####
-
-    @Slot()
-    def updateRig(self):
-        logger.debug('Setting the mainWindow rig to the controller rig')
-        self.mainWindow.rig = self.rig
-
-    @Slot()
-    def buildRig(self):
-        pass
-
-    @Slot()
-    def bindRig(self):
-        pass
-
-    @Slot()
-    def bakeRig(self):
-        pass
-
-    @Slot()
-    def refreshRig(self):
-        pass
-
-    @Slot(str)
-    def addComponent(self, name):
-        pass
-
-    @Slot(str)
-    def addSelected(self, name):
-        pass
-
-    @Slot()
-    def updateData(self):
-        pass
-
-class TestController(MainController):
-    '''
-    A class inheriting from the standard controller setup for testing without a model.
-    '''
-
-    def __init__(self, window, model):
-        MainController.__init__(self, window, model)
-
-        self._built = False
-        self._bound = False
-        self._baked = False
-
-        self._componentdata = [
-            {
-                'type': 'FKComponent',
-                'name': 'hip_M',
-                'deformTargets': ['ethan_hips_M'],
-                'mainControlType': 'circle',
-                'aimAxis': [1, 0, 0],
-                'parentSpace': None,
-                'uprightSpace': None
-            },
-            {
-                'type': 'IKComponent',
-                'name': 'leg_L',
-                'deformTargets': ['ethan_thigh_L', 'ethan_knee_L', 'ethan_foot_L'],
-                'mainControlType': 'cube',
-                'aimAxis': [1, 0, 0],
-                'parentSpace': 'hip',
-                'uprightSpace': 'hip'
-            }
-        ]
-
-    #### Private Methods ####
-
-    def _create_rig(self, name):
-        '''
-        Creates an new empty rig for testing
-        '''
-
-        logger.debug('Creating a new rig')
-
-        newRig = {
-            'name': name,
-            'components': {}
-        }
-
-        return newRig
-
-    def _add_FK_component(self, name='TestFKComponent'):
-        '''
-        Add a new FkComponent to the rig
-        '''
-
-        logger.debug('Adding a new FKComponent named: ' + name)
-
-        fkComponent = {
-            'type': 'FKComponent',
-            'name': 'hip_M',
-            'deformTargets': ['ethan_hips_M'],
-            'mainControlType': 'circle',
-            'aimAxis': [0,1,0],
-            'parentSpace': None,
-            'uprightSpace': None
-        }
-
-        newRig = self.rig
-        newRig['components'].append(fkComponent)
-
-        self.rig = newRig
-
-    def _add_IK_component(self, name='TestIKComponent'):
-        '''
-        Add a new IKComponent to the rig
-        '''
-
-        logger.debug('Adding a new IK Component named: ' + name)
-
-        ikComponent = {
-            'type': 'IKComponent',
-            'name': 'leg_L',
-            'deformTargets': ['ethan_thigh_L', 'ethan_knee_L', 'ethan_foot_L'],
-            'mainControlType': 'cube',
-            'aimAxis': [1,0,0],
-            'parentSpace': 'hip',
-            'uprightSpace': 'hip'
-        }
-
-        newRig = self.rig
-        newRig['components'].append(ikComponent)
-
-        self.rig = newRig
-
-
-    #### Public Properties ####
-
-    @property
-    def componentData(self):
-        return self._componentdata
-
-    @componentData.setter
-    def componentData(self, value):
-        self._componentdata = value
-
-        logger.debug('Sending rig updated signal')
-
-        self.onRigUpdated.emit()
-
-    @property
-    def components(self):
-        return COMPONENT_TYPES
-
-    @property
-    def controls(self):
-        return CONTROL_TYPES
-
-    #### Slots ####
-
-    @Slot()
-    def buildRig(self):
-        self._built = not self._built
-        self.onUpdateBuildStatus.emit(self._built)
-
-    @Slot()
-    def bindRig(self):
-        self._bound = not self._bound
-        self.onUpdateBindStatus.emit(self._bound)
-
-    @Slot()
-    def bakeRig(self):
-        self._baked = not self._baked
-        self.onUpdateBakeStatus.emit(self._baked)
-
-    @Slot()
-    def refreshRig(self):
-        pass
-
-    @Slot(str)
-    def addComponent(self, name):
-
-        # Update the rig
-        self.updateData()
-
-        # Check the name of the component, and add to the rig accordingly
-        if str(name) == 'FKComponent':
-            logger.debug('Adding an FK component')
-            self._add_FK_component()
-
-        elif str(name) == 'IKComponent':
-            logger.debug('Adding an IK component')
-            self._add_IK_component()
-
-        else:
-            logger.warning('Attempted to create a component, but did not recognize the name')
-
-    @Slot(int)
-    def addSelected(self, index):
-
-        logger.debug('Rig is adding selected joints to the rig')
-
-        # Grab the latest version of the data
-        self.updateData()
-
-        # Add selected object to the deform targets of the specified component
-        self.rig['components'][index]['deformTargets'].append('ethan_head_M')
-
-        # Update the UI
-        self.onRigUpdated.emit()
-
-    @Slot()
-    def updateData(self):
-
-        logger.debug('Updating the rig data from the view')
-
-        self._rig['components'] = self.mainWindow.data
-
 ##############################
 #         UI Windows         #
 ##############################
@@ -605,12 +353,13 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     onRefreshRigClicked = Signal()
 
     # A signal for creating a rig
-    # The string is the name for the rig
     onCreateNewRigClicked = Signal()
 
     # A signal for loading rig
-    # The first string is the rig name, the second is the directory
-    onLoadRigClicked = Signal(str, str)
+    onLoadRigClicked = Signal()
+
+    # A signal for saving the current rig
+    onSaveRigClicked = Signal()
 
     # A signal for adding a component
     # The string is the name of the component type
@@ -623,6 +372,12 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     # A signal to let the control know a component was updated
     # The string is the id of the component, the dict is the componentData
     onComponentDataUpdated = Signal(str, dict)
+
+    # Widget Signals
+    # These are sent to slots in widget this window creates
+    onUpdateComponentWidgets = Signal(dict)
+    onUpdateControlTypeWidgets = Signal(list)
+    onUpdateComponentTypeWidgets = Signal(list)
 
     def __init__(self, parent=None):
         QtWidgets.QMainWindow.__init__(self, parent)
@@ -643,11 +398,33 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # Set the default state of the window
         self.setWindowTitle = ('RigTools Component Manager')
 
-        # Set up the create rig widget (This will create a main_widget and main_layout
-        self._showCreateRigWidget()
+        # Create the menu bar
+        self._createMenuBar()
 
-        # Set the main widget as the center widget
-        self.setCentralWidget(self.main_widget)
+        # Set up the create rig widget (This will create a main_widget and main_layout
+        self._createMainWidget()
+
+    def _createMenuBar(self):
+
+        newAction = QtWidgets.QAction('New Rig', self)
+        newAction.setStatusTip('New Rig')
+        newAction.triggered.connect(self.onCreateNewRigClicked)
+
+        saveAction = QtWidgets.QAction('Save Rig', self)
+        saveAction.setStatusTip('Save the current rig')
+        saveAction.triggered.connect(self.onSaveRigClicked)
+
+        loadAction = QtWidgets.QAction('Load Rig', self)
+        loadAction.setStatusTip('Load a rig')
+        loadAction.triggered.connect(self.onLoadRigClicked)
+
+        self.statusBar()
+
+        menubar = self.menuBar()
+        fileMenu = menubar.addMenu('File')
+        fileMenu.addAction(newAction)
+        fileMenu.addAction(saveAction)
+        fileMenu.addAction(loadAction)
 
     def _createMainWidget(self):
 
@@ -661,27 +438,13 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         self.main_layout = QtWidgets.QVBoxLayout(self.main_widget)
         self.main_layout.setAlignment(QtCore.Qt.AlignTop)
 
-    def _showCreateRigWidget(self):
-
-        # Create a new main widget
-        self._createMainWidget()
-
-        # Create a button for creating new rigs
-        newRigButton = QtWidgets.QPushButton('Create Rig', self.main_widget)
-        self.main_layout.addWidget(newRigButton)
-        newRigButton.clicked.connect(self.onCreateNewRigClicked)
-
-        # Create a button for loading rigs
-        loadRigButton = QtWidgets.QPushButton('Load Rig', self.main_widget)
-        self.main_layout.addWidget(loadRigButton)
-        # TODO connect load button to something
+        # Set the main widget as the center widget
+        self.setCentralWidget(self.main_widget)
 
     def _showComponentDataWidget(self):
 
         # Create a new main widget
         self._createMainWidget()
-
-        # TODO Create the top menu bar
 
         # Add the scroll area
         self._addScrollWidget()
@@ -700,7 +463,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # Create an 'AddComponent' button
         self.addButton = QtWidgets.QPushButton('Add Component')
         layout.addWidget(self.addButton, 0, 0, 1, 0)
-        self.addButton.clicked.connect(self.onAddComponentClicked)
+        self.onUpdateComponentTypeWidgets.connect(self.updateAddComponentMenus)
 
         # Create a 'Build' button
         self.buildButton = QtWidgets.QPushButton('Build')
@@ -722,8 +485,6 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.refreshButton, 2, 1)
         self.refreshButton.clicked.connect(self.onRefreshRigClicked)
 
-        return
-
     def _addScrollWidget(self):
 
         logger.debug('Adding the scroll widget')
@@ -736,7 +497,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         self.main_layout.addWidget(scroll)
 
-        return scroll
+        self.scrollWidget = scroll
 
 
     ##### Controller Slots #####
@@ -752,48 +513,64 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         scrollValue = self.scrollWidget.verticalScrollBar().value()
 
         # Clear the component widget list
-        del self.componentWidgets[:]
-
-        # If the widget already exists, destroy it
-        try:
-            self.componentWidget.deleteLater()
-            del self.componentWidget
-        except AttributeError:
-            pass
+        del self._componentWidgets[:]
 
         # Create a widget to contain the components
-        container = QtWidgets.QWidget()
+        self.componentWidget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout()
         layout.setAlignment(QtCore.Qt.AlignTop)
-        container.setLayout(layout)
+        self.componentWidget.setLayout(layout)
 
         # For each component in the components dictionary
-        for component in self.rig['components']:
+        for id, data in componentData.iteritems():
 
             # Create a widget for the component
-            widget = ComponentWidget(component['name'], component, self, self.rig['components'].index(component))
+            print data['deformTargets']
+            widget = ComponentWidget(data['name'], data, self, id)
 
             # Connect the widgets signals
-            widget.onAddSelected.connect(self.onAddSelected)
-            widget.onUpdateData.connect(self.onUpdateData)
+            widget.onAddSelected.connect(self.onAddSelectedClicked)
+            widget.onUpdateData.connect(self.onComponentDataUpdated)
+
+            # Connect the widget to some window signals
+            self.onUpdateComponentWidgets.connect(widget.updateComponentData)
+            self.onUpdateComponentTypeWidgets.connect(widget.updateComponentTypeData)
+            self.onUpdateControlTypeWidgets.connect(widget.updateControlTypeData)
 
             # Add the widget to the component widget dict
-            self.componentWidgets.append(widget)
+            self._componentWidgets.append(widget)
 
             # Add the widget to the layout
             layout.addWidget(widget)
 
-        self.scrollWidget.setWidget(container)
+        # Then emit a signal to update all widgets that care about components
+        self.onUpdateComponentWidgets.emit(componentData)
+
+        self.scrollWidget.setWidget(self.componentWidget)
 
         self.scrollWidget.verticalScrollBar().setValue(scrollValue)
 
-    @Slot(dict)
+    @Slot(list)
     def updateControlTypeData(self, controlTypeData):
-        pass
+        self.onUpdateControlTypeWidgets.emit(controlTypeData)
 
-    @Slot(dict)
+    @Slot(list)
     def updateComponentTypeData(self, componentTypeData):
-        pass
+        self.onUpdateComponentTypeWidgets.emit(componentTypeData)
+
+    @Slot(list)
+    def updateAddComponentMenus(self, componentTypeData):
+
+        logger.info('MainComponentWindow: updateAddComponentMenus signal received. Value: ' + str(componentTypeData))
+
+        menu = QtWidgets.QMenu()
+
+        for componentType in componentTypeData:
+            action = QtWidgets.QAction(componentType, menu)
+            action.triggered.connect(self._onAddComponentGenerator(componentType))
+            menu.addAction(action)
+
+        self.addButton.setMenu(menu)
 
     # These are called by the controller when the state of the rig changes
     @Slot(bool)
@@ -802,12 +579,14 @@ class MainComponentWindow(QtWidgets.QMainWindow):
             self.buildButton.setText('Remove')
         else:
             self.buildButton.setText('Build')
+
     @Slot(bool)
     def updateBindButton(self, bound):
         if bound:
             self.bindButton.setText('Unbind')
         else:
             self.bindButton.setText('Bind')
+
     @Slot(bool)
     def updateBakeButton(self, baked):
         if baked:
@@ -819,16 +598,6 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     def createRigWidget(self):
         self._showComponentDataWidget()
 
-    ##### Widget Slots #####
-
-    @Slot(str)
-    # A componentWidget calls this to alert that a component has been changed
-    def componentUpdated(self, id):
-
-        # Grab the data from that component
-        # Emit a signal with the data
-        raise NotImplementedError
-
 
     ##### Private Methods #####
 
@@ -838,17 +607,16 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         raise NotImplementedError
 
     # This adds a menu action for the addComponent menu
-    # Not sure what index means though
-    def _onAddComponentGenerator(self, index):
+    def _onAddComponentGenerator(self, componentName):
 
         def onAddComponent():
-            self.onAddComponent.emit(index)
+            self.onAddComponent.emit(componentName)
 
         return onAddComponent
 
 
 ##############################
-#       Custom Widgets       #
+#      Component Widget      #
 ##############################
 
 class ComponentWidget(QtWidgets.QWidget):
@@ -857,10 +625,19 @@ class ComponentWidget(QtWidgets.QWidget):
     :param argumentDict: A dictionary from the rig dict containing argument information.
     '''
 
-    onAddSelected = Signal(int)
-    onUpdateData = Signal()
+    # Window Signals
+    # These alert the window to changes in the gui
+    onAddSelected = Signal(str)
+    onUpdateData = Signal(str, dict)
 
-    def __init__(self, name, argumentDict, parent, index):
+    # Widget Signals
+    # These alert the ui to changes in the data
+    updateComponentTypeData = Signal(list)
+    updateControlTypeData = Signal(list)
+    updateComponentData = Signal(dict)
+    onAddSelectedClicked = Signal()
+
+    def __init__(self, name, argumentDict, parent, id):
         QtWidgets.QWidget.__init__(self)
 
         # Grab a reference to the parent widget
@@ -873,9 +650,15 @@ class ComponentWidget(QtWidgets.QWidget):
         self.name = name
 
         # Set the widgets index
-        self.index = index
+        self.id = id
+
+        # Connect some internal signals
+        self.onAddSelectedClicked.connect(self.onAddSelectedSlot)
 
         self._setup()
+
+
+    #### Private Methods #####
 
     def _setup(self):
 
@@ -915,6 +698,9 @@ class ComponentWidget(QtWidgets.QWidget):
                 widget.value = value
                 self.argumentWidgets[key] = widget
 
+                # Connect to the widget's value changed signal
+                widget.onValueChanged.connect(self.onValueChanged)
+
                 # Add the widget to the form layout
                 form_layout.addRow(key, widget)
             except KeyError:
@@ -927,6 +713,15 @@ class ComponentWidget(QtWidgets.QWidget):
             self.hidden = self.arguments['hidden']
         except KeyError:
             pass
+
+    def _toggle_visibility(self):
+        self.hidden = not self.hidden
+
+    def _getTitle(self, name):
+        return self.arguments['type'] + ' : ' + name
+
+
+    #### Properties #####
 
     @property
     def value(self):
@@ -948,18 +743,6 @@ class ComponentWidget(QtWidgets.QWidget):
         return data
 
     @property
-    def rig(self):
-        return self.parent.rig
-
-    @property
-    def components(self):
-        return self.parent.components
-
-    @property
-    def controls(self):
-        return self.parent.controls
-
-    @property
     def hidden(self):
         return self.argumentContainer.isVisible()
 
@@ -967,12 +750,8 @@ class ComponentWidget(QtWidgets.QWidget):
     def hidden(self, value):
         self.argumentContainer.setVisible(value)
 
-    def _toggle_visibility(self):
 
-        self.hidden = not self.hidden
-
-    def _getTitle(self, name):
-        return self.arguments['type'] + ' : ' + name
+    ##### Slots #####
 
     @Slot()
     def _updateTitle(self):
@@ -980,8 +759,45 @@ class ComponentWidget(QtWidgets.QWidget):
 
         self.title.setText(self._getTitle(self.argumentWidgets['name'].value))
 
+    @Slot()
+    # A widget calls this to let the component know something changed
+    def onValueChanged(self):
 
-class QTargetList(QtWidgets.QWidget):
+        logger.info('ComponentWidget: onValueChanged Signal received.')
+
+        # Send this components id and value
+        self.onUpdateData.emit(self.id, self.value)
+
+    @Slot()
+    def onAddSelectedSlot(self):
+
+        # Tell the window to update this component in the data
+        self.onAddSelected.emit(self.id)
+
+
+
+##############################
+#      Argument Widgets      #
+##############################
+
+class ComponentArgumentWidget(QtCore.QObject):
+    '''
+    An inherited only class that adds signals every widget in a component should have
+    '''
+
+    # This is called when the value of a argument is changed
+    onValueChanged = Signal()
+
+    @property
+    def value(self):
+        return None
+
+    @value.setter
+    def value(self, value):
+        pass
+
+
+class QTargetList(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent):
         QtWidgets.QWidget.__init__(self, parent)
 
@@ -1001,14 +817,14 @@ class QTargetList(QtWidgets.QWidget):
         self.layout.addLayout(buttonLayout)
 
         # Create an add button
-        self.addButton = QtWidgets.QPushButton('+', self)
-        buttonLayout.addWidget(self.addButton)
-        self.addButton.clicked.connect(self.addButtonClicked)
+        addButton = QtWidgets.QPushButton('+', self)
+        buttonLayout.addWidget(addButton)
+        addButton.clicked.connect(self.addButtonClicked)
 
         # Create a remove button
-        self.removeButton = QtWidgets.QPushButton('-', self)
-        buttonLayout.addWidget(self.removeButton)
-        self.removeButton.clicked.connect(self.removeButtonClicked)
+        removeButton = QtWidgets.QPushButton('-', self)
+        buttonLayout.addWidget(removeButton)
+        removeButton.clicked.connect(self.removeButtonClicked)
 
     @property
     def value(self):
@@ -1023,10 +839,12 @@ class QTargetList(QtWidgets.QWidget):
         # Add each value into the list
         self.list.addItems(value)
 
+    @Slot()
     def addButtonClicked(self):
         logger.debug('Add button clicked')
-        self.parent.onAddSelected.emit(self.parent.index)
+        self.parent.onAddSelectedClicked.emit()
 
+    @Slot()
     def removeButtonClicked(self):
 
         logger.debug('Remove button clicked for ' + self.parent.name)
@@ -1037,18 +855,64 @@ class QTargetList(QtWidgets.QWidget):
             self.list.takeItem(self.list.row(item))
 
         # Update the rig
-        self.parent.onUpdateData.emit()
+        self.onValueChanged.emit()
 
 
-class QControlComboBox(QtWidgets.QComboBox):
+class QControlComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
     def __init__(self, parent):
 
         QtWidgets.QComboBox.__init__(self, parent)
 
-        # Fill the combo box with the control types
-        for control in parent.controls:
+        # Alert the component when a value is changed
+        self.activated.connect(self.onValueChanged)
+
+        # Connect to the parents signal
+        parent.updateControlTypeData.connect(self.onControlTypeUpdated)
+
+    @property
+    def value(self):
+        return self.currentText()
+
+    @value.setter
+    def value(self, value):
+        self.setCurrentText(value)
+
+    @Slot(list)
+    def onControlTypeUpdated(self, controlTypeData):
+
+        logger.info('ControlCombox: onControlTypeUpdated rignal received. Value: ' + str(controlTypeData))
+
+        # Save the current selection
+        selectedIndex = self.currentIndex()
+
+        # Clear the combobox
+        for item in range(self.count()):
+            self.removeItem(item)
+
+        # Add each component type to the list
+        for control in controlTypeData:
             self.addItem(control)
 
+        # Try to add the selected item
+        try:
+            if selectedIndex < 0:
+                self.setCurrentIndex(0)
+            else :
+                self.setCurrentIndex(selectedIndex)
+        except:
+            self.setCurrentIndex(0)
+
+
+class QComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
+    def __init__(self, parent):
+        QtWidgets.QComboBox.__init__(self, parent)
+
+        # Alert the component when a value is changed
+        self.activated.connect(self.onValueChanged)
+
+        # Connect to the parents signal
+        parent.updateComponentData.connect(self.onComponentUpdated)
+
     @property
     def value(self):
         return self.currentText()
@@ -1057,33 +921,39 @@ class QControlComboBox(QtWidgets.QComboBox):
     def value(self, value):
         self.setCurrentText(value)
 
+    @Slot(dict)
+    def onComponentUpdated(self, componentData):
 
-class QComponentComboBox(QtWidgets.QComboBox):
+        # Save the current selection
+        selectedIndex = self.currentIndex()
+
+        # Clear the combobox
+        for item in range(self.count()):
+            self.removeItem(item)
+
+        # Add each component type to the list
+        for name, niceName in componentData.iteritems:
+            self.addItem(niceName)
+
+        # Try to add the selected item
+        try:
+            if selectedIndex < 0:
+                self.setCurrentIndex(0)
+            else:
+                self.setCurrentIndex(selectedIndex)
+        except:
+            self.setCurrentIndex(0)
+
+
+class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
     def __init__(self, parent):
         QtWidgets.QComboBox.__init__(self, parent)
 
-        # Add each component type to the list
-        for component in parent.components:
-            self.addItem(component)
+        # Alert the component when a value is changed
+        self.activated.connect(self.onValueChanged)
 
-    @property
-    def value(self):
-        return self.currentText()
-
-    @value.setter
-    def value(self, value):
-        self.setCurrentText(value)
-
-
-class QRigComponentComboBox(QtWidgets.QComboBox):
-    def __init__(self, parent):
-        QtWidgets.QComboBox.__init__(self, parent)
-
-        # Add each component type to the list
-        for component in parent.rig['components']:
-            self.addItem(component['name'])
-
-        self.addItem('world')
+        # Connect to the parents signal
+        parent.updateComponentTypeData.connect(self.onComponentTypeUpdated)
 
     @property
     def value(self):
@@ -1099,8 +969,19 @@ class QRigComponentComboBox(QtWidgets.QComboBox):
         else:
             self.setCurrentText(value)
 
+    @Slot(list)
+    def onComponentTypeUpdated(self, componentTypes):
 
-class QVectorWidget(QtWidgets.QWidget):
+        # Clear the combobox
+        self.clear()
+
+        # Add an item for the world
+        self.addItem('world')
+
+        # Add each component type to the list
+        self.addItems(componentTypes)
+
+class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent):
         QtWidgets.QWidget.__init__(self, parent)
 
@@ -1113,8 +994,11 @@ class QVectorWidget(QtWidgets.QWidget):
                            QtWidgets.QDoubleSpinBox(self),
                            QtWidgets.QDoubleSpinBox(self)]
 
+        # Add each spinbox to the layout
+        # And connect it to the value changed signal
         for spinBox in self.spinBoxes:
             self.layout.addWidget(spinBox)
+            spinBox.valueChanged.connect(self.onValueChanged)
 
     @property
     def value(self):
@@ -1126,10 +1010,13 @@ class QVectorWidget(QtWidgets.QWidget):
             self.spinBoxes[num].setValue(value[num])
 
 
-class QNameWidget(QtWidgets.QLineEdit):
+class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
     def __init__(self, parent):
 
         QtWidgets.QLineEdit.__init__(self, parent)
+
+        # Alert the component widget when a value is changed
+        self.textChanged.connect(self.onValueChanged)
 
     @property
     def value(self):
@@ -1153,11 +1040,11 @@ COMPONENT_SETTINGS = {
     'uprightSpace': QRigComponentComboBox
 }
 
-COMPONENT_TYPES = {
-    'FKComponent': 'Basic FK Compoment',
-    'IKComponent': 'Basic IK Component',
-    'GlobalComponent': 'Global Component'
-}
+COMPONENT_TYPES = [
+    'FKComponent',
+    'IKComponent',
+    'GlobalComponent'
+]
 
 CONTROL_TYPES = [
     'default',
@@ -1217,7 +1104,7 @@ def _test():
     logger.addHandler(file_handler)
 
     # Enable logging to the console
-    #logger.addHandler(stream_handler)
+    logger.addHandler(stream_handler)
     logger.setLevel(logging.DEBUG)
 
     # Create a reference to the application
