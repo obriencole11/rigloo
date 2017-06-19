@@ -1,6 +1,7 @@
 from Qt import QtCore, QtWidgets, QtGui
 from Qt.QtCore import Slot, Signal
 import logging
+import uuid
 
 ##############################
 #          Logging           #
@@ -22,6 +23,297 @@ stream_handler.setLevel(logging.DEBUG)
 #       UI Controllers       #
 ##############################
 
+class BaseController(QtCore.QObject):
+
+    # A signal to tell the ui to regenerate its components
+    onRefreshComponents = Signal(dict)
+
+    # Signals to let the view and its widgets know type data was updated
+    # The dict is the updated type data
+    onControlTypeDataUpdated = Signal(dict)
+    onComponentTypeDataUpdated = Signal(dict)
+
+    # Signals to update on the current state of the rig
+    onBuiltStateChange = Signal(bool)
+    onBoundStateChange = Signal(bool)
+    onBakedStateChange = Signal(bool)
+
+    # Signal to update the view when a new rig is created
+    onNewRig = Signal()
+
+    def __init__(self, window, model):
+        QtCore.QObject.__init__(self)
+
+        # Set a variable to store the active rig
+        self._activeRig = None
+
+        # Grab a reference to the View
+        self._window = window
+
+        # Grab a reference to the model
+        self._model = model
+
+
+    ##### View Slots #####
+
+
+    @Slot(str, dict)
+    def setComponentValue(self, id, data):
+        # This takes the data from the ui
+        # And sends it to the model for storage
+        raise NotImplementedError
+
+    @Slot(str)
+    def addComponent(self, componentType):
+        # Tells the model to add a new component
+        # Then refreshes the view's components
+        raise NotImplementedError
+
+    @Slot(str)
+    def addSelected(self, id):
+        # Adds selected joints to the specified component
+        # Then refresh the view
+        raise NotImplementedError
+
+    @Slot(str)
+    def createRig(self, rigName):
+        # Tells the model to create a rig with the specified name
+        # Tells the view to show the componentData widget and refresh the components
+        raise NotImplementedError
+
+    @Slot(str, str)
+    def loadRig(self, rigName, rigDir):
+        # Tells the model to load the specified rig
+        # tells the view to show the componentData and refresh the components
+        raise NotImplementedError
+
+    @Slot()
+    def buildRig(self):
+        # If the model is not built, build it, otherwise remove it
+        # Send update button signal on view
+        raise NotImplementedError
+
+    @Slot()
+    def bakeRig(self):
+        # If the model is baked, bake it, otherwise unbake it
+        # Send the update button signal for view
+        raise NotImplementedError
+
+    @Slot()
+    def refreshRig(self):
+        # Tell the model to refresh the rig
+        raise NotImplementedError
+
+    @Slot()
+    def bindRig(self):
+        # If the model is not bound, bind it, otherwise unbind it
+        # Send the update button signal for view
+        raise NotImplementedError
+
+
+    #### Private Methods ####
+
+    def _refreshView(self):
+        # Update the view's componentData
+        # Tell the view to regenerate components
+        raise NotImplementedError
+
+
+
+    ##### private properties #####
+
+    @property
+    def componentData(self):
+        # Return the latest version of the model's componet Data
+        raise NotImplementedError
+
+    @property
+    def bound(self):
+        # Return whether the rig is bound or not
+        raise NotImplementedError
+
+    @property
+    def built(self):
+        # Return whether the rig is built or not
+        raise NotImplementedError
+
+    @property
+    def baked(self):
+        # Return whether the rig is baked or not
+        raise NotImplementedError
+
+    @property
+    def activeRig(self):
+        return self._activeRig
+
+    @activeRig.setter
+    def activeRig(self, value):
+        self._activeRig = value
+
+
+class TestViewController(BaseController):
+
+    def __init__(self, window, componentData, controlTypeData, componentTypeData):
+        BaseController.__init__(self, window, None)
+
+        # For testing, this will be the rig data
+        self._componentData = componentData
+
+        # Also setup some type data
+        self._controlTypeData = controlTypeData
+        self._componentTypeData = componentTypeData
+
+        # Setup the state variables
+        self._bound = False
+        self._baked = False
+        self._built = False
+
+        # Connect controller signals to view slots
+        self.onRefreshComponents.connect(window.refreshComponentWidgets)
+        self.onBoundStateChange.connect(window.updateBindButton)
+        self.onBakedStateChange.connect(window.updateBakeButton)
+        self.onBuiltStateChange.connect(window.updateBuildButton)
+        self.onControlTypeDataUpdated.connect(window.updateControlTypeData)
+        self.onComponentTypeDataUpdated.connect(window.updateComponentTypeData)
+        self.onNewRig.connect(window.createRigWidget)
+
+        # Connect view signals to controller slots
+        window.onComponentDataUpdated.connect(self.setComponentValue)
+        window.onAddComponentClicked.connect(self.addComponent)
+        window.onAddSelectedClicked.connect(self.addSelected)
+        window.onCreateNewRigClicked.connect(self.createRig)
+        window.onLoadRigClicked.connect(self.loadRig)
+        window.onBuildRigClicked.connect(self.buildRig)
+        window.onBakeRigClicked.connect(self.bakeRig)
+        window.onRefreshRigClicked.connect(self.refreshRig)
+        window.onBindRigClicked.connect(self.bindRig)
+
+
+    ##### View Slots #####
+
+    @Slot(str, dict)
+    def setComponentValue(self, id, data):
+        # This takes the data from the ui
+        # And sends it to the model for storage
+        self._componentData[id] = data
+
+    @Slot(str)
+    def addComponent(self, componentType):
+        # Tells the model to add a new component
+        # Then refreshes the view's components
+        id = uuid.uuid1().hex
+
+        if componentType == 'FKComponent':
+            component = {
+                'type' : componentType,
+                'name' : 'fkComponent',
+                'mainControlType' : 'default',
+                'deformJoints' : ['thigh'],
+                'id' : id
+            }
+        elif componentType == 'IKComponent':
+            component = {
+                'type' : componentType,
+                'name' : 'ikComponent',
+                'mainControlType' : 'cube',
+                'deformJoints': ['thigh', 'knee', 'foot'],
+                'id' : id
+            }
+        else:
+            component = {
+                'type': componentType,
+                'name': 'UnknownComponent',
+                'mainControlType': 'default',
+                'deformJoints': [],
+                'id': id
+            }
+
+        self._componentData[id] = component
+
+        self._refreshView()
+
+    @Slot(str)
+    def addSelected(self, id):
+        # Adds selected joints to the specified component
+        # Then refresh the view
+        self._componentData[id]['deformJoints'].append(['newSelectedJoint'])
+
+    @Slot()
+    def createRig(self):
+        # Tells the model to create a rig with the specified name
+        # Set that rig as the current rig
+        # Tells the view to show the componentData widget and refresh the components
+        rigName = 'defaultRig'
+        self._componentData.clear()
+        self.activeRig = rigName
+        self.onNewRig.emit()
+        self._refreshView()
+
+    @Slot(str, str)
+    def loadRig(self, rigName, rigDir):
+        # Tells the model to load the specified rig
+        # tells the view to show the componentData and refresh the components
+        self.activeRig = 'defaultRig'
+        self.onNewRig.emit()
+        self._refreshView()
+
+    @Slot()
+    def buildRig(self):
+        # If the model is not built, build it, otherwise remove it
+        # Send update button signal on view
+        self._built = not self.built
+        self.onBuiltStateChange(self.built)
+
+    @Slot()
+    def bakeRig(self):
+        # If the model is baked, bake it, otherwise unbake it
+        # Send the update button signal for view
+        self._baked = not self.baked
+        self.onBakedStateChange(self.baked)
+
+    @Slot()
+    def refreshRig(self):
+        # Tell the model to refresh the rig
+        pass
+
+    @Slot()
+    def bindRig(self):
+        # If the model is not bound, bind it, otherwise unbind it
+        # Send the update button signal for view
+        self._bound = not self.bound
+        self.onBoundStateChange(self.bound)
+
+
+    #### Private Methods ####
+
+    def _refreshView(self):
+        # Update the view's componentData
+        # Tell the view to regenerate components
+        self.onRefreshComponents.emit(self._componentData)
+
+    ##### private properties #####
+
+    @property
+    def componentData(self):
+        # Return the latest version of the model's componet Data
+        raise self._componentData
+
+    @property
+    def bound(self):
+        # Return whether the rig is bound or not
+        return self._bound
+
+    @property
+    def built(self):
+        # Return whether the rig is built or not
+        return self._built
+
+    @property
+    def baked(self):
+        # Return whether the rig is baked or not
+        return self._baked
+
+
 class MainController(QtCore.QObject):
     '''
     The Base class for the ui controller, not intended for direct use.
@@ -30,6 +322,7 @@ class MainController(QtCore.QObject):
     onComponentsUpdated = Signal()
     onRigUpdated = Signal()
     onControlsUpdated = Signal()
+
 
     onUpdateBuildStatus = Signal(bool)
     onUpdateBakeStatus = Signal(bool)
@@ -44,7 +337,7 @@ class MainController(QtCore.QObject):
         # Grab a reference to the model
         self.model = model
 
-        window.rig = self.rig
+        window.componentData = self.componentData
         window.components = self.components
         window.controls = self.controls
 
@@ -72,11 +365,11 @@ class MainController(QtCore.QObject):
     #### Public Properties ####
 
     @property
-    def rig(self):
+    def componentData(self):
         return {}
 
-    @rig.setter
-    def rig(self, value):
+    @componentData.setter
+    def componentData(self, value):
         pass
 
     @property
@@ -128,8 +421,8 @@ class TestController(MainController):
     A class inheriting from the standard controller setup for testing without a model.
     '''
 
-    def __init__(self, window):
-        MainController.__init__(self, window)
+    def __init__(self, window, model):
+        MainController.__init__(self, window, model)
 
         self._built = False
         self._bound = False
@@ -220,12 +513,12 @@ class TestController(MainController):
     #### Public Properties ####
 
     @property
-    def rig(self):
-        return self._rig
+    def componentData(self):
+        return self._componentdata
 
-    @rig.setter
-    def rig(self, value):
-        self._rig = value
+    @componentData.setter
+    def componentData(self, value):
+        self._componentdata = value
 
         logger.debug('Sending rig updated signal')
 
@@ -305,26 +598,40 @@ class TestController(MainController):
 
 class MainComponentWindow(QtWidgets.QMainWindow):
 
-    # Event Signals
-    onBuildRig = Signal()
-    onBindRig = Signal()
-    onBakeRig = Signal()
-    onRefreshRig = Signal()
+    # Event Signals for main button presses
+    onBuildRigClicked = Signal()
+    onBindRigClicked = Signal()
+    onBakeRigClicked = Signal()
+    onRefreshRigClicked = Signal()
 
-    onAddComponent = Signal(str)
-    onAddSelected = Signal(int)
-    onUpdateData = Signal()
+    # A signal for creating a rig
+    # The string is the name for the rig
+    onCreateNewRigClicked = Signal()
 
-    onRigChanged = Signal()
-    onControlsChanged = Signal()
-    onComponentsChanged = Signal()
+    # A signal for loading rig
+    # The first string is the rig name, the second is the directory
+    onLoadRigClicked = Signal(str, str)
 
-    _rig = {}
-    _components = {}
-    _controls = {}
+    # A signal for adding a component
+    # The string is the name of the component type
+    onAddComponentClicked = Signal(str)
+
+    # A signal to let the control know it should add selected joints to a component
+    # The str is the id of the component to update
+    onAddSelectedClicked = Signal(str)
+
+    # A signal to let the control know a component was updated
+    # The string is the id of the component, the dict is the componentData
+    onComponentDataUpdated = Signal(str, dict)
 
     def __init__(self, parent=None):
         QtWidgets.QMainWindow.__init__(self, parent)
+
+        # Create a list for storing component widgets
+        self._componentWidgets = []
+
+        # Create a default value for the main widget
+        self.main_widget = None
 
         # Setup the widgets
         self._setup()
@@ -336,25 +643,53 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # Set the default state of the window
         self.setWindowTitle = ('RigTools Component Manager')
 
-        self.componentWidgets = []
+        # Set up the create rig widget (This will create a main_widget and main_layout
+        self._showCreateRigWidget()
 
-        # Connect signals to slots
-        self.onComponentsChanged.connect(self.updateAddComponentButton)
-        self.onRigChanged.connect(self.updateRig)
+        # Set the main widget as the center widget
+        self.setCentralWidget(self.main_widget)
+
+    def _createMainWidget(self):
+
+        # If the main widget exists, delete it
+        if self.main_widget is not None:
+            del self.main_widget
+            self.main_widget = None
 
         # Create a vertical layout for the widget and add it
         self.main_widget = QtWidgets.QWidget(self)
         self.main_layout = QtWidgets.QVBoxLayout(self.main_widget)
         self.main_layout.setAlignment(QtCore.Qt.AlignTop)
 
-        # Set up each subWidget in order
-        self.scrollWidget = self._add_scroll_widget()
-        self._add_button_widget()
+    def _showCreateRigWidget(self):
 
-        # Set the main widget as the center widget
-        self.setCentralWidget(self.main_widget)
+        # Create a new main widget
+        self._createMainWidget()
 
-    def _add_button_widget(self):
+        # Create a button for creating new rigs
+        newRigButton = QtWidgets.QPushButton('Create Rig', self.main_widget)
+        self.main_layout.addWidget(newRigButton)
+        newRigButton.clicked.connect(self.onCreateNewRigClicked)
+
+        # Create a button for loading rigs
+        loadRigButton = QtWidgets.QPushButton('Load Rig', self.main_widget)
+        self.main_layout.addWidget(loadRigButton)
+        # TODO connect load button to something
+
+    def _showComponentDataWidget(self):
+
+        # Create a new main widget
+        self._createMainWidget()
+
+        # TODO Create the top menu bar
+
+        # Add the scroll area
+        self._addScrollWidget()
+
+        # Add the buttons to the bottom
+        self._addButtonWidget()
+
+    def _addButtonWidget(self):
 
         logger.debug('Creating the add button widget')
 
@@ -365,30 +700,31 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # Create an 'AddComponent' button
         self.addButton = QtWidgets.QPushButton('Add Component')
         layout.addWidget(self.addButton, 0, 0, 1, 0)
+        self.addButton.clicked.connect(self.onAddComponentClicked)
 
         # Create a 'Build' button
         self.buildButton = QtWidgets.QPushButton('Build')
         layout.addWidget(self.buildButton, 1, 0)
-        self.buildButton.clicked.connect(self.onBuildRig)
+        self.buildButton.clicked.connect(self.onBuildRigClicked)
 
         # Create a 'Bind' button
         self.bindButton = QtWidgets.QPushButton('Bind')
         layout.addWidget(self.bindButton, 1, 1)
-        self.bindButton.clicked.connect(self.onBindRig)
+        self.bindButton.clicked.connect(self.onBindRigClicked)
 
         # Create a 'Bake' button
         self.bakeButton = QtWidgets.QPushButton('Bake to Control Rig')
         layout.addWidget(self.bakeButton, 2, 0)
-        self.bakeButton.clicked.connect(self.onBakeRig)
+        self.bakeButton.clicked.connect(self.onBakeRigClicked)
 
         # Create a 'Bind' button
         self.refreshButton = QtWidgets.QPushButton('Refresh')
         layout.addWidget(self.refreshButton, 2, 1)
-        self.refreshButton.clicked.connect(self.onRefreshRig)
+        self.refreshButton.clicked.connect(self.onRefreshRigClicked)
 
         return
 
-    def _add_scroll_widget(self):
+    def _addScrollWidget(self):
 
         logger.debug('Adding the scroll widget')
 
@@ -397,12 +733,18 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         scroll.setWidgetResizable(False)
         scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+
         self.main_layout.addWidget(scroll)
 
         return scroll
 
-    @Slot()
-    def updateRig(self):
+
+    ##### Controller Slots #####
+
+    @Slot(dict)
+    # The controller calls this to regenerate the component ui
+    # The dict is an updated version of the component Data
+    def refreshComponentWidgets(self, componentData):
 
         logger.debug('Regenerating the component ui with new rig components')
 
@@ -445,38 +787,27 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         self.scrollWidget.verticalScrollBar().setValue(scrollValue)
 
-    @Slot()
-    def updateAddComponentButton(self):
+    @Slot(dict)
+    def updateControlTypeData(self, controlTypeData):
+        pass
 
-        logger.debug('Updating the menus on the AddComponent button')
+    @Slot(dict)
+    def updateComponentTypeData(self, componentTypeData):
+        pass
 
-        # Create a menu for the add button
-        menu = QtWidgets.QMenu(self.main_widget)
-
-        # Add a menu action for each component type
-        for component in self.components:
-            action = QtWidgets.QAction(self.main_widget)
-            action.setText(component)
-            action.triggered.connect(self._onAddComponentGenerator(action.text()))
-            menu.addAction(action)
-
-        # Apply the menu
-        self.addButton.setMenu(menu)
-
+    # These are called by the controller when the state of the rig changes
     @Slot(bool)
     def updateBuildButton(self, built):
         if built:
             self.buildButton.setText('Remove')
         else:
             self.buildButton.setText('Build')
-
     @Slot(bool)
     def updateBindButton(self, bound):
         if bound:
             self.bindButton.setText('Unbind')
         else:
             self.bindButton.setText('Bind')
-
     @Slot(bool)
     def updateBakeButton(self, baked):
         if baked:
@@ -484,59 +815,31 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         else:
             self.bakeButton.setText('Bake to Control Rig')
 
-    @property
-    def data(self):
+    @Slot()
+    def createRigWidget(self):
+        self._showComponentDataWidget()
 
-        logger.debug('Generating data from the view')
+    ##### Widget Slots #####
 
-        # Create a dict to store return data
-        data = []
+    @Slot(str)
+    # A componentWidget calls this to alert that a component has been changed
+    def componentUpdated(self, id):
 
-        # For each component, store its value in the dict
-        for widget in self.componentWidgets:
-            data.append(widget.value)
+        # Grab the data from that component
+        # Emit a signal with the data
+        raise NotImplementedError
 
-        return data
 
-    @property
-    def rig(self):
-        return self._rig
+    ##### Private Methods #####
 
-    @rig.setter
-    def rig(self, value):
-        self._rig = value
+    # This returns a dict of component data for a specified component
+    def _getComponentData(self, id):
 
-        logger.debug('The Main Window rig has been changed, sending signal')
+        raise NotImplementedError
 
-        self.onRigChanged.emit()
-
-    @property
-    def components(self):
-        return self._components
-
-    @components.setter
-    def components(self, value):
-        self._components = value
-
-        logger.debug('The Main Windows component type dict has been updated, emitting signal')
-
-        self.onComponentsChanged.emit()
-
-    @property
-    def controls(self):
-        return self._controls
-
-    @controls.setter
-    def controls(self, value):
-        self._controls = value
-
-        logger.debug('The Main Windows control dict has been changed, emitting signal')
-
-        self.onControlsChanged.emit()
-
+    # This adds a menu action for the addComponent menu
+    # Not sure what index means though
     def _onAddComponentGenerator(self, index):
-
-        logging.debug('Adding a menu action')
 
         def onAddComponent():
             self.onAddComponent.emit(index)
@@ -864,6 +1167,38 @@ CONTROL_TYPES = [
     'star'
 ]
 
+TEST_COMPONENT_DATA = {
+    'legID' : {
+        'type': 'IKComponent',
+        'name': 'leg_L',
+        'deformTargets': ['ethan_thigh_L', 'ethan_knee_L', 'ethan_foot_L'],
+        'mainControlType': 'cube',
+        'aimAxis': [1, 0, 0],
+        'parentSpace': 'hipID',
+        'uprightSpace': 'hipID'
+    },
+    'hipID' : {
+        'type': 'FKComponent',
+        'name': 'hips_M',
+        'deformTargets': ['ethan_hips'],
+        'mainControlType': 'square',
+        'aimAxis': [1, 0, 0],
+        'parentSpace': 'rootID',
+        'uprightSpace': 'rootID'
+
+    },
+    'rootID' : {
+        'type': 'Component',
+        'name': 'root_M',
+        'deformTargets': ['ethan_root'],
+        'mainControlType': 'circle',
+        'aimAxis': [1, 0, 0],
+        'parentSpace': 'world',
+        'uprightSpace': 'world'
+    }
+}
+
+
 ##############################
 #     Testing Functions      #
 ##############################
@@ -892,7 +1227,7 @@ def _test():
     mainWindow = MainComponentWindow()
 
     # Create the ui controller
-    controller = TestController(mainWindow)
+    controller = TestViewController(mainWindow, TEST_COMPONENT_DATA, CONTROL_TYPES, COMPONENT_TYPES)
 
     # Show the main window
     mainWindow.show()
