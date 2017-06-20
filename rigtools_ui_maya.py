@@ -50,18 +50,22 @@ class ModelController(ui.ViewController):
     def addComponent(self, componentType):
         # Tells the model to add a new component
         # Then refreshes the view's components
-        self._model.addComponent(componentType)
+        self._model.addComponent(self._currentRig, componentType)
         self._refreshView()
 
     @Slot(str)
     def addSelected(self, id):
         # Adds selected joints to the specified component
         # Then refresh the view
-        selected = pmc.selected()
-        nameData = [target.name() for target in selected]
-        oldData = self.componentData[id]
-        oldData['deformTargets'].append(nameData)
+        logger.info('Model Controller: Add Selected signal received. Value: ' + id)
 
+        selected = pmc.selected()
+        print selected
+        nameData = [target.name() for target in selected]
+        print nameData
+        oldData = self.componentData[id]
+        oldData['deformTargets'].extend(nameData)
+        print oldData
         self.setComponentValue(id, oldData)
 
         self._refreshView()
@@ -81,6 +85,7 @@ class ModelController(ui.ViewController):
     def loadRig(self):
         # Tells the model to load the specified rig
         # tells the view to show the componentData and refresh the components
+        logger.info('Model Controller: LoadRig Signal Received')
         raise NotImplementedError
         #self._model.loadRig(name)
         #self.onNewRig.emit()
@@ -89,6 +94,7 @@ class ModelController(ui.ViewController):
     @Slot()
     def saveRig(self):
         # Saves the active rig to the model's data
+        logger.info('Model Controller: SaveRig Signal Received')
         self._model.saveRig(self._currentRig)
 
     @Slot()
@@ -175,11 +181,88 @@ class MayaController(ModelController):
     def __init__(self, *args, **kwargs):
         ModelController.__init__(self, *args, **kwargs)
 
-# Stores the current instance of the window
-mainWindow = None
 
+# Stores the current instance of the window
+
+'''
+def connectController(controller, mainWindow):
+    controller.onRefreshComponents.connect(refreshComponentWidgets)
+    controller.onBoundStateChange.connect(updateBindButton)
+    controller.onBakedStateChange.connect(updateBakeButton)
+    controller.onBuiltStateChange.connect(updateBuildButton)
+    controller.onNewRig.connect(createRigWidget)
+
+    # Connect view signals to controller slots
+    mainWindow.onComponentDataUpdated.connect(setComponentValue)
+    mainWindow.onAddComponentClicked.connect(addComponent)
+    mainWindow.onAddSelectedClicked.connect(addSelected)
+    mainWindow.onCreateNewRigClicked.connect(createRig)
+    mainWindow.onLoadRigClicked.connect(loadRig)
+    mainWindow.onSaveRigClicked.connect(saveRig)
+    mainWindow.onBuildRigClicked.connect(buildRig)
+    mainWindow.onBakeRigClicked.connect(bakeRig)
+    mainWindow.onRefreshRigClicked.connect(refreshRig)
+    mainWindow.onBindRigClicked.connect(bindRig)
+
+
+def createRigWidget(*args):
+    mainWindow.createRigWidget(*args)
+
+def refreshComponentWidgets(*args):
+    mainWindow.refreshComponentWidgets(*args)
+
+def updateBindButton(*args):
+    mainWindow.updateBindButton(*args)
+
+def updateBakeButton(*args):
+    mainWindow.updateBakeButton(*args)
+
+def updateBuildButton(*args):
+    mainWindow.updateBuildButton(*args)
+
+
+
+def createRig(*args):
+    controller.createRig(*args)
+
+def setComponentValue(*args):
+    controller.setComponentValue(*args)
+
+def addComponent(*args):
+    controller.addComponent(*args)
+
+def addSelected(*args):
+    controller.addSelected(*args)
+
+def loadRig(*args):
+    controller.loadRig(*args)
+
+def buildRig(*args):
+    controller.buildRig(*args)
+
+def saveRig(*args):
+    controller.saveRig(*args)
+
+def bakeRig(*args):
+    controller.bakeRig(*args)
+
+def refreshRig(*args):
+    controller.refreshRig(*args)
+
+def bindRig(*args):
+    controller.bindRig(*args)
+'''
+mainWindow = None
+controller = None
+mayaWindow = None
+data = None
+model = None
 def show():
     global mainWindow
+    global model
+    global data
+    global mayaWindow
+    global controller
 
     # If the window already exists, don't create a new one
     if mainWindow is None:
@@ -191,6 +274,7 @@ def show():
         # Create the window
         mainWindow = ui.MainComponentWindow()
 
+
         # Create the data
         data = rigtools.RigToolsData()
 
@@ -199,6 +283,8 @@ def show():
 
         # Create the controller
         controller = MayaController(mainWindow, model)
+
+        #connectController(controller, mainWindow)
 
     # Show the window
     mainWindow.show()

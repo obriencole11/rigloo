@@ -360,6 +360,7 @@ class Component(object):
         arguments['aimAxis'] = [axis for axis in self._aimAxis]
         arguments['parentSpace'] = getName(self.parentSpace)
         arguments['uprightSpace'] = getName(self.uprightSpace)
+        arguments['type'] = self.__class__.__name__
 
         return arguments
 
@@ -634,7 +635,7 @@ class Rig(object):
         Creates a new component instance based on inputed data\
         :param componentType: A string with the name of the component class
         '''
-
+        print componentType
         componentType = eval(componentType)
 
         component = componentType(rig=self, **kwargs)
@@ -1331,13 +1332,16 @@ class RigToolsModel(object):
     def rigData(self, rigName):
         return self._activeRigs[rigName].componentData
 
-    def addComponent(self, rigName, **kwargs):
+    def addComponent(self, rigName, type):
         '''
         Adds a component to the rig based on a string for rig name and componentType
         '''
 
         # Add the component to the rig
-        return self._activeRigs[rigName].addComponent(**kwargs)
+        component = eval(type)()
+        data = component.data
+
+        return self._activeRigs[rigName].addComponent(**component.data)
 
     def removeComponent(self, rigName, id):
 

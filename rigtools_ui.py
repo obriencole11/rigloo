@@ -421,8 +421,12 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # Create the menu bar
         self._createMenuBar()
 
+
         # Set up the create rig widget (This will create a main_widget and main_layout
         self._createMainWidget()
+
+    def test(self):
+        print 'AAAAAAAAAAA'
 
     def _createMenuBar(self):
 
@@ -551,11 +555,16 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # For each component in the components dictionary
         for id, data in componentData.iteritems():
 
+            try:
+                index = data['index']
+            except KeyError:
+                index = len(componentData) + 1
+
             # Create a widget for the component
             widget = ComponentWidget(data['name'], data, self, id,
                                      componentTypeData,
                                      controlTypeData,
-                                     data['index'])
+                                     index)
 
             # Connect the widgets signals
             widget.onAddSelected.connect(self.onAddSelectedClicked)
