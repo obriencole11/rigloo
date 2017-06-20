@@ -2,6 +2,7 @@ from Qt import QtCore, QtWidgets, QtGui
 from Qt.QtCore import Slot, Signal
 import logging
 import uuid
+from collections import OrderedDict
 
 ##############################
 #          Logging           #
@@ -26,7 +27,7 @@ stream_handler.setLevel(logging.DEBUG)
 class BaseController(QtCore.QObject):
 
     # A signal to tell the ui to regenerate its components
-    onRefreshComponents = Signal(dict)
+    onRefreshComponents = Signal(dict, list, list)
 
     # Signals to let the view and its widgets know type data was updated
     # The dict is the updated type data
@@ -41,16 +42,15 @@ class BaseController(QtCore.QObject):
     # Signal to update the view when a new rig is created
     onNewRig = Signal()
 
-    def __init__(self, window, model):
+    def __init__(self, window=None, model=None):
         QtCore.QObject.__init__(self)
+        #super(QtCore.QObject, self).__init__()
 
         # Set a variable to store the active rig
         self._activeRig = None
 
         # Grab a reference to the View
         self._window = window
-
-        # Grab a reference to the model
         self._model = model
 
 
@@ -161,28 +161,28 @@ class ViewController(BaseController):
     Overrides commands that pertain to the view.
     '''
 
-    def __init__(self, window, model):
-        BaseController.__init__(self, window, model)
+    def __init__(self, *args, **kwargs):
+        BaseController.__init__(self, *args, **kwargs)
 
         # Connect controller signals to view slots
-        self.onRefreshComponents.connect(window.refreshComponentWidgets)
-        self.onBoundStateChange.connect(window.updateBindButton)
-        self.onBakedStateChange.connect(window.updateBakeButton)
-        self.onBuiltStateChange.connect(window.updateBuildButton)
-        self.onControlTypeDataUpdated.connect(window.updateControlTypeData)
-        self.onComponentTypeDataUpdated.connect(window.updateComponentTypeData)
-        self.onNewRig.connect(window.createRigWidget)
+        self.onRefreshComponents.connect(self._window.refreshComponentWidgets)
+        self.onBoundStateChange.connect(self._window.updateBindButton)
+        self.onBakedStateChange.connect(self._window.updateBakeButton)
+        self.onBuiltStateChange.connect(self._window.updateBuildButton)
+        self.onNewRig.connect(self._window.createRigWidget)
 
         # Connect view signals to controller slots
-        window.onComponentDataUpdated.connect(self.setComponentValue)
-        window.onAddComponentClicked.connect(self.addComponent)
-        window.onAddSelectedClicked.connect(self.addSelected)
-        window.onCreateNewRigClicked.connect(self.createRig)
-        window.onLoadRigClicked.connect(self.loadRig)
-        window.onBuildRigClicked.connect(self.buildRig)
-        window.onBakeRigClicked.connect(self.bakeRig)
-        window.onRefreshRigClicked.connect(self.refreshRig)
-        window.onBindRigClicked.connect(self.bindRig)
+        self._window.onComponentDataUpdated.connect(self.setComponentValue)
+        self._window.onAddComponentClicked.connect(self.addComponent)
+        self._window.onAddSelectedClicked.connect(self.addSelected)
+        self._window.onCreateNewRigClicked.connect(self.createRig)
+        self._window.onLoadRigClicked.connect(self.loadRig)
+        self._window.onSaveRigClicked.connect(self.saveRig)
+        self._window.onBuildRigClicked.connect(self.buildRig)
+        self._window.onBakeRigClicked.connect(self.bakeRig)
+        self._window.onRefreshRigClicked.connect(self.refreshRig)
+        self._window.onBindRigClicked.connect(self.bindRig)
+
 
 class TestViewController(ViewController):
 
@@ -203,16 +203,15 @@ class TestViewController(ViewController):
 
         # This stores active rigs
         self.activeRig = 'defaultRig'
-        self.rigs = {'defaultRig' : componentData}
+        self.rigs = {}
+        self.rigs[self.activeRig] = componentData
 
     #### Private Methods ####
 
     def _refreshView(self):
         # Update the view's componentData
         # Tell the view to regenerate components
-        self.onRefreshComponents.emit(self._componentData)
-        self.onComponentTypeDataUpdated.emit(self._componentTypeData)
-        self.onControlTypeDataUpdated.emit(self._controlTypeData)
+        self.onRefreshComponents.emit(self._componentData, self._componentTypeData, self._controlTypeData)
 
     ##### View Slots #####
 
@@ -222,36 +221,48 @@ class TestViewController(ViewController):
         # And sends it to the model for storage
         self._componentData[id] = data
 
+        self._refreshView()
+
     @Slot(str)
     def addComponent(self, componentType):
         # Tells the model to add a new component
         # Then refreshes the view's components
+        logger.info('TestViewController: Received an addComponent Signal. Value: ' + componentType)
+
         id = uuid.uuid1().hex
 
         if componentType == 'FKComponent':
             component = {
-                'type' : componentType,
-                'name' : 'fkComponent',
-                'mainControlType' : 'default',
-                'deformJoints' : ['thigh'],
-                'id' : id
+                'index': len(self.componentData)+1,
+                'type': componentType,
+                'name': 'fkComponent',
+                'mainControlType': 'default',
+                'deformTargets': ['thigh'],
+                'id': id,
+                'hidden': True
             }
         elif componentType == 'IKComponent':
             component = {
+                'index': len(self.componentData)+1,
                 'type' : componentType,
                 'name' : 'ikComponent',
                 'mainControlType' : 'cube',
-                'deformJoints': ['thigh', 'knee', 'foot'],
-                'id' : id
+                'deformTargets': ['thigh', 'knee', 'foot'],
+                'id' : id,
+                'hidden': True
             }
         else:
             component = {
+                'index': len(self.componentData)+1,
                 'type': componentType,
                 'name': 'UnknownComponent',
                 'mainControlType': 'default',
-                'deformJoints': [],
-                'id': id
+                'deformTargets': [],
+                'id': id,
+                'hidden': True
             }
+
+        print component['index']
 
         self._componentData[id] = component
 
@@ -271,40 +282,49 @@ class TestViewController(ViewController):
         # Tells the model to create a rig with the specified name
         # Set that rig as the current rig
         # Tells the view to show the componentData widget and refresh the components
-        rigName = 'newRig'
-        self._componentData.clear()
+        rigName = uuid.uuid1().hex
+        self._componentData = {}
         self.rigs[rigName] = self._componentData
         self.activeRig = rigName
         self.onNewRig.emit()
         self._refreshView()
 
+        print self.rigs
+
     @Slot()
     def loadRig(self):
         # Tells the model to load the specified rig
         # tells the view to show the componentData and refresh the components
+        logger.info('TextViewController: loadRig Signal received.')
+
         self.activeRig = 'defaultRig'
-        self._componentData = self.rigs[self.activeRig]
+        self._componentData = self.rigs['defaultRig']
         self.onNewRig.emit()
         self._refreshView()
+
+        print self.rigs
 
     @Slot()
     def saveRig(self):
         # Saves the active rig to the model's data
-        self.rigs[self.activeRig] = self._componentData
+        logger.info('TextViewController: saveRig Signal received.')
+
+        self.rigs['defaultRig'] = self._componentData
+        print self.rigs
 
     @Slot()
     def buildRig(self):
         # If the model is not built, build it, otherwise remove it
         # Send update button signal on view
         self._built = not self.built
-        self.onBuiltStateChange(self.built)
+        self.onBuiltStateChange.emit(self.built)
 
     @Slot()
     def bakeRig(self):
         # If the model is baked, bake it, otherwise unbake it
         # Send the update button signal for view
         self._baked = not self.baked
-        self.onBakedStateChange(self.baked)
+        self.onBakedStateChange.emit(self.baked)
 
     @Slot()
     def refreshRig(self):
@@ -316,14 +336,14 @@ class TestViewController(ViewController):
         # If the model is not bound, bind it, otherwise unbind it
         # Send the update button signal for view
         self._bound = not self.bound
-        self.onBoundStateChange(self.bound)
+        self.onBoundStateChange.emit(self.bound)
 
     ##### private properties #####
 
     @property
     def componentData(self):
         # Return the latest version of the model's componet Data
-        raise self._componentData
+        return self._componentData
 
     @property
     def bound(self):
@@ -376,8 +396,6 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     # Widget Signals
     # These are sent to slots in widget this window creates
     onUpdateComponentWidgets = Signal(dict)
-    onUpdateControlTypeWidgets = Signal(list)
-    onUpdateComponentTypeWidgets = Signal(list)
 
     def __init__(self, parent=None):
         QtWidgets.QMainWindow.__init__(self, parent)
@@ -397,6 +415,8 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         # Set the default state of the window
         self.setWindowTitle = ('RigTools Component Manager')
+
+        self.objectName = 'Rigtools Component Manager'
 
         # Create the menu bar
         self._createMenuBar()
@@ -463,7 +483,6 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # Create an 'AddComponent' button
         self.addButton = QtWidgets.QPushButton('Add Component')
         layout.addWidget(self.addButton, 0, 0, 1, 0)
-        self.onUpdateComponentTypeWidgets.connect(self.updateAddComponentMenus)
 
         # Create a 'Build' button
         self.buildButton = QtWidgets.QPushButton('Build')
@@ -502,10 +521,12 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
     ##### Controller Slots #####
 
-    @Slot(dict)
+    @Slot(dict, list, list)
     # The controller calls this to regenerate the component ui
     # The dict is an updated version of the component Data
-    def refreshComponentWidgets(self, componentData):
+    def refreshComponentWidgets(self, componentData, componentTypeData, controlTypeData):
+
+        self.updateAddComponentMenus(componentTypeData)
 
         logger.debug('Regenerating the component ui with new rig components')
 
@@ -521,12 +542,20 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         layout.setAlignment(QtCore.Qt.AlignTop)
         self.componentWidget.setLayout(layout)
 
+        # Sort the component data by index
+        sortedData = OrderedDict(sorted(componentData.iteritems(), key=lambda t: t[1], reverse=True))
+
+        # Create an empty list to store components hidden state
+        #hiddenData = []
+
         # For each component in the components dictionary
         for id, data in componentData.iteritems():
 
             # Create a widget for the component
-            print data['deformTargets']
-            widget = ComponentWidget(data['name'], data, self, id)
+            widget = ComponentWidget(data['name'], data, self, id,
+                                     componentTypeData,
+                                     controlTypeData,
+                                     data['index'])
 
             # Connect the widgets signals
             widget.onAddSelected.connect(self.onAddSelectedClicked)
@@ -534,14 +563,28 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
             # Connect the widget to some window signals
             self.onUpdateComponentWidgets.connect(widget.updateComponentData)
-            self.onUpdateComponentTypeWidgets.connect(widget.updateComponentTypeData)
-            self.onUpdateControlTypeWidgets.connect(widget.updateControlTypeData)
 
             # Add the widget to the component widget dict
             self._componentWidgets.append(widget)
 
-            # Add the widget to the layout
+
+            # Try to add the hidden state to the list
+            # If there is no state specified, revert to default
+            #try:
+                #hiddenData.append(data['hidden'])
+            #except KeyError:
+                #hiddenData.append(True)
+
+        # Sort the widgets by index
+        # Then add the widget to the layout
+        list = sorted(self._componentWidgets, key= lambda widget: widget.index)
+        for widget in list:
             layout.addWidget(widget)
+
+        # Apply all the hidden states
+        # This is to avoid odd formmatting
+        #for index in range(len(hiddenData)):
+            #self._componentWidgets[index].hidden = hiddenData[index]
 
         # Then emit a signal to update all widgets that care about components
         self.onUpdateComponentWidgets.emit(componentData)
@@ -563,10 +606,11 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         logger.info('MainComponentWindow: updateAddComponentMenus signal received. Value: ' + str(componentTypeData))
 
-        menu = QtWidgets.QMenu()
+        menu = QtWidgets.QMenu(self.main_widget)
 
         for componentType in componentTypeData:
-            action = QtWidgets.QAction(componentType, menu)
+            action = QtWidgets.QAction(self.addButton)
+            action.setText(componentType)
             action.triggered.connect(self._onAddComponentGenerator(componentType))
             menu.addAction(action)
 
@@ -610,7 +654,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     def _onAddComponentGenerator(self, componentName):
 
         def onAddComponent():
-            self.onAddComponent.emit(componentName)
+            self.onAddComponentClicked.emit(componentName)
 
         return onAddComponent
 
@@ -632,12 +676,10 @@ class ComponentWidget(QtWidgets.QWidget):
 
     # Widget Signals
     # These alert the ui to changes in the data
-    updateComponentTypeData = Signal(list)
-    updateControlTypeData = Signal(list)
     updateComponentData = Signal(dict)
     onAddSelectedClicked = Signal()
 
-    def __init__(self, name, argumentDict, parent, id):
+    def __init__(self, name, argumentDict, parent, id, componentTypeData, controlTypeData, index):
         QtWidgets.QWidget.__init__(self)
 
         # Grab a reference to the parent widget
@@ -646,11 +688,18 @@ class ComponentWidget(QtWidgets.QWidget):
         # Grab a reference to the component dictionary
         self.arguments = argumentDict
 
+        # Grab a reference to the type data
+        self.componentTypeData = componentTypeData
+        self.controlTypeData = controlTypeData
+
         # Set the widgets title
         self.name = name
 
+
         # Set the widgets index
         self.id = id
+
+        self.index = index
 
         # Connect some internal signals
         self.onAddSelectedClicked.connect(self.onAddSelectedSlot)
@@ -694,7 +743,7 @@ class ComponentWidget(QtWidgets.QWidget):
 
             # Create the widget for the argument
             try:
-                widget = COMPONENT_SETTINGS[key](self)
+                widget = COMPONENT_SETTINGS[key](self, self.arguments, self.componentTypeData, self.controlTypeData)
                 widget.value = value
                 self.argumentWidgets[key] = widget
 
@@ -708,14 +757,18 @@ class ComponentWidget(QtWidgets.QWidget):
 
         self.argumentWidgets['name'].textChanged.connect(self._updateTitle)
 
+
         # Set the default state of visibility
+
         try:
             self.hidden = self.arguments['hidden']
         except KeyError:
-            pass
+            self.hidden = True
+
 
     def _toggle_visibility(self):
         self.hidden = not self.hidden
+        self.onValueChanged()
 
     def _getTitle(self, name):
         return self.arguments['type'] + ' : ' + name
@@ -796,9 +849,8 @@ class ComponentArgumentWidget(QtCore.QObject):
     def value(self, value):
         pass
 
-
 class QTargetList(QtWidgets.QWidget, ComponentArgumentWidget):
-    def __init__(self, parent):
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
         QtWidgets.QWidget.__init__(self, parent)
 
         self.parent = parent
@@ -857,17 +909,15 @@ class QTargetList(QtWidgets.QWidget, ComponentArgumentWidget):
         # Update the rig
         self.onValueChanged.emit()
 
-
 class QControlComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
-    def __init__(self, parent):
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
 
         QtWidgets.QComboBox.__init__(self, parent)
 
         # Alert the component when a value is changed
         self.activated.connect(self.onValueChanged)
 
-        # Connect to the parents signal
-        parent.updateControlTypeData.connect(self.onControlTypeUpdated)
+        self.addItems(controlTypeData)
 
     @property
     def value(self):
@@ -876,42 +926,15 @@ class QControlComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
     @value.setter
     def value(self, value):
         self.setCurrentText(value)
-
-    @Slot(list)
-    def onControlTypeUpdated(self, controlTypeData):
-
-        logger.info('ControlCombox: onControlTypeUpdated rignal received. Value: ' + str(controlTypeData))
-
-        # Save the current selection
-        selectedIndex = self.currentIndex()
-
-        # Clear the combobox
-        for item in range(self.count()):
-            self.removeItem(item)
-
-        # Add each component type to the list
-        for control in controlTypeData:
-            self.addItem(control)
-
-        # Try to add the selected item
-        try:
-            if selectedIndex < 0:
-                self.setCurrentIndex(0)
-            else :
-                self.setCurrentIndex(selectedIndex)
-        except:
-            self.setCurrentIndex(0)
-
 
 class QComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
-    def __init__(self, parent):
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
         QtWidgets.QComboBox.__init__(self, parent)
 
         # Alert the component when a value is changed
         self.activated.connect(self.onValueChanged)
 
-        # Connect to the parents signal
-        parent.updateComponentData.connect(self.onComponentUpdated)
+        self.addItems(componentData)
 
     @property
     def value(self):
@@ -921,39 +944,14 @@ class QComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
     def value(self, value):
         self.setCurrentText(value)
 
-    @Slot(dict)
-    def onComponentUpdated(self, componentData):
-
-        # Save the current selection
-        selectedIndex = self.currentIndex()
-
-        # Clear the combobox
-        for item in range(self.count()):
-            self.removeItem(item)
-
-        # Add each component type to the list
-        for name, niceName in componentData.iteritems:
-            self.addItem(niceName)
-
-        # Try to add the selected item
-        try:
-            if selectedIndex < 0:
-                self.setCurrentIndex(0)
-            else:
-                self.setCurrentIndex(selectedIndex)
-        except:
-            self.setCurrentIndex(0)
-
-
 class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
-    def __init__(self, parent):
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
         QtWidgets.QComboBox.__init__(self, parent)
 
         # Alert the component when a value is changed
         self.activated.connect(self.onValueChanged)
 
-        # Connect to the parents signal
-        parent.updateComponentTypeData.connect(self.onComponentTypeUpdated)
+        self.addItems(componentTypeData)
 
     @property
     def value(self):
@@ -969,20 +967,8 @@ class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
         else:
             self.setCurrentText(value)
 
-    @Slot(list)
-    def onComponentTypeUpdated(self, componentTypes):
-
-        # Clear the combobox
-        self.clear()
-
-        # Add an item for the world
-        self.addItem('world')
-
-        # Add each component type to the list
-        self.addItems(componentTypes)
-
 class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
-    def __init__(self, parent):
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
         QtWidgets.QWidget.__init__(self, parent)
 
         # Create a horizontal layout to hold text fields
@@ -1009,9 +995,8 @@ class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
         for num in range(3):
             self.spinBoxes[num].setValue(value[num])
 
-
 class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
-    def __init__(self, parent):
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
 
         QtWidgets.QLineEdit.__init__(self, parent)
 
@@ -1055,33 +1040,39 @@ CONTROL_TYPES = [
 ]
 
 TEST_COMPONENT_DATA = {
-    'legID' : {
+    'legID': {
+        'index': 0,
         'type': 'IKComponent',
         'name': 'leg_L',
         'deformTargets': ['ethan_thigh_L', 'ethan_knee_L', 'ethan_foot_L'],
         'mainControlType': 'cube',
         'aimAxis': [1, 0, 0],
         'parentSpace': 'hipID',
-        'uprightSpace': 'hipID'
+        'uprightSpace': 'hipID',
+        'hidden': False
     },
-    'hipID' : {
+    'hipID': {
+        'index': 1,
         'type': 'FKComponent',
         'name': 'hips_M',
         'deformTargets': ['ethan_hips'],
         'mainControlType': 'square',
         'aimAxis': [1, 0, 0],
         'parentSpace': 'rootID',
-        'uprightSpace': 'rootID'
+        'uprightSpace': 'rootID',
+        'hidden': False
 
     },
-    'rootID' : {
+    'rootID': {
+        'index': 2,
         'type': 'Component',
         'name': 'root_M',
         'deformTargets': ['ethan_root'],
         'mainControlType': 'circle',
         'aimAxis': [1, 0, 0],
         'parentSpace': 'world',
-        'uprightSpace': 'world'
+        'uprightSpace': 'world',
+        'hidden': False
     }
 }
 

@@ -10,11 +10,11 @@ import maya.utils
 #       Rig Settings         #
 ##############################
 
-COMPONENT_TYPES = {
-    'Basic FK Compoment': 'FKComponent',
-    'Basic IK Component': 'IKComponent',
-    'Global Component': 'GlobalComponent'
-}
+COMPONENT_TYPES = [
+    'FKComponent',
+    'IKComponent',
+    'GlobalComponent'
+]
 
 ##############################
 #     Utility Classes        #
@@ -1266,6 +1266,8 @@ class RigToolsModel(object):
         # Save a file for the rig
         self._data.save(name, componentData)
 
+        return name
+
     def buildRig(self, rigName):
 
         # Remove the rig
@@ -1290,6 +1292,12 @@ class RigToolsModel(object):
         # Rebuild, bake, and bind the rig
         self._activeRigs[rigName].bake()
         self._activeRigs[rigName].bind()
+
+    def bakeDeforms(self, rigName):
+        self._activeRigs[rigName].bakeDeforms()
+
+    def unbindRig(self, rigName):
+        self._activeRigs[rigName].unbind()
 
     def refreshRig(self, rigName):
 
@@ -1320,6 +1328,9 @@ class RigToolsModel(object):
 
         self._activeRigs[rigName] = Rig(rigName, componentData)
 
+    def rigData(self, rigName):
+        return self._activeRigs[rigName].componentData
+
     def addComponent(self, rigName, **kwargs):
         '''
         Adds a component to the rig based on a string for rig name and componentType
@@ -1334,6 +1345,15 @@ class RigToolsModel(object):
 
     def setComponentValue(self, rigName, id, attr, value):
         self._activeRigs[rigName].setComponent(id, attr, value)
+
+    def isBuilt(self, rigName):
+        return self._activeRigs[rigName].built
+
+    def isBound(self, rigName):
+        return self._activeRigs[rigName].bound
+
+    def isBaked(self, rigName):
+        return self._activeRigs[rigName].baked
 
 
 ##############################
