@@ -7,6 +7,7 @@ import logging
 from Qt import QtCore, QtWidgets
 from Qt.QtCore import Slot, Signal
 
+
 ##############################
 #          Logging           #
 ##############################
@@ -181,87 +182,14 @@ class MayaController(ModelController):
     def __init__(self, *args, **kwargs):
         ModelController.__init__(self, *args, **kwargs)
 
-
-# Stores the current instance of the window
-
-'''
-def connectController(controller, mainWindow):
-    controller.onRefreshComponents.connect(refreshComponentWidgets)
-    controller.onBoundStateChange.connect(updateBindButton)
-    controller.onBakedStateChange.connect(updateBakeButton)
-    controller.onBuiltStateChange.connect(updateBuildButton)
-    controller.onNewRig.connect(createRigWidget)
-
-    # Connect view signals to controller slots
-    mainWindow.onComponentDataUpdated.connect(setComponentValue)
-    mainWindow.onAddComponentClicked.connect(addComponent)
-    mainWindow.onAddSelectedClicked.connect(addSelected)
-    mainWindow.onCreateNewRigClicked.connect(createRig)
-    mainWindow.onLoadRigClicked.connect(loadRig)
-    mainWindow.onSaveRigClicked.connect(saveRig)
-    mainWindow.onBuildRigClicked.connect(buildRig)
-    mainWindow.onBakeRigClicked.connect(bakeRig)
-    mainWindow.onRefreshRigClicked.connect(refreshRig)
-    mainWindow.onBindRigClicked.connect(bindRig)
-
-
-def createRigWidget(*args):
-    mainWindow.createRigWidget(*args)
-
-def refreshComponentWidgets(*args):
-    mainWindow.refreshComponentWidgets(*args)
-
-def updateBindButton(*args):
-    mainWindow.updateBindButton(*args)
-
-def updateBakeButton(*args):
-    mainWindow.updateBakeButton(*args)
-
-def updateBuildButton(*args):
-    mainWindow.updateBuildButton(*args)
-
-
-
-def createRig(*args):
-    controller.createRig(*args)
-
-def setComponentValue(*args):
-    controller.setComponentValue(*args)
-
-def addComponent(*args):
-    controller.addComponent(*args)
-
-def addSelected(*args):
-    controller.addSelected(*args)
-
-def loadRig(*args):
-    controller.loadRig(*args)
-
-def buildRig(*args):
-    controller.buildRig(*args)
-
-def saveRig(*args):
-    controller.saveRig(*args)
-
-def bakeRig(*args):
-    controller.bakeRig(*args)
-
-def refreshRig(*args):
-    controller.refreshRig(*args)
-
-def bindRig(*args):
-    controller.bindRig(*args)
-'''
+# Create a variable for the controller and the mainWindow
+# This is so they will not be garbage-collected
 mainWindow = None
 controller = None
-mayaWindow = None
-data = None
-model = None
+
+
 def show():
     global mainWindow
-    global model
-    global data
-    global mayaWindow
     global controller
 
     # If the window already exists, don't create a new one
@@ -269,11 +197,12 @@ def show():
 
         # Grab the maya application and the main maya window
         app = QtWidgets.QApplication.instance()
-        #mayaWindow = {o.objectName(): o for o in app.topLevelWidgets()}["MayaWindow"]
+        mayaWindow = {o.objectName(): o for o in app.topLevelWidgets()}["MayaWindow"]
 
         # Create the window
-        mainWindow = ui.MainComponentWindow()
-
+        mainWindow = ui.MayaComponentWindow(mayaWindow)
+        #mainWindow = MyWindow(mayaWindow)
+        #mayaWindow.addDockWidget(QtCore.Qt.LeftDockWidgetArea, mainWindow)
 
         # Create the data
         data = rigtools.RigToolsData()
@@ -284,9 +213,7 @@ def show():
         # Create the controller
         controller = MayaController(mainWindow, model)
 
-        #connectController(controller, mainWindow)
-
     # Show the window
-    mainWindow.show()
+    mainWindow.show(dockable=True, area='right', allowedArea = "right")
 
 # from rigtools import rigtools_ui_maya; reload(rigtools_ui_maya); rigtools_ui_maya.show()

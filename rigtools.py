@@ -10,11 +10,42 @@ import maya.utils
 #       Rig Settings         #
 ##############################
 
-COMPONENT_TYPES = [
-    'FKComponent',
-    'IKComponent',
-    'GlobalComponent'
-]
+COMPONENT_TYPES = {
+    'Component': {
+        'name': 'defaultComponent',
+        'type': 'Component',
+        'mainControlType': 'default',
+        'mainControlScale': 10.0,
+        'deformTargets': [],
+        'aimAxis': [0,1,0],
+        'parentSpace': None,
+        'uprightSpace': None
+    },
+    'FKComponent': {
+        'name': 'defaultFKComponent',
+        'type': 'FKComponent',
+        'mainControlType': 'default',
+        'mainControlScale': 10.0,
+        'deformTargets': [],
+        'aimAxis': [1,0,0],
+        'parentSpace': None,
+        'uprightSpace': None,
+        'stretchEnabled': False,
+        'squashEnabled': False
+    },
+    'IKComponent': {
+        'name': 'defaultIKComponent',
+        'type': 'IKComponent',
+        'mainControlType': 'cube',
+        'mainControlScale': 10.0,
+        'deformTargets': [],
+        'aimAxis': [1,0,0],
+        'parentSpace': None,
+        'uprightSpace': None,
+        'stretchEnabled': False,
+        'squashEnabled': False
+    }
+}
 
 ##############################
 #     Utility Classes        #
@@ -1337,11 +1368,7 @@ class RigToolsModel(object):
         Adds a component to the rig based on a string for rig name and componentType
         '''
 
-        # Add the component to the rig
-        component = eval(type)()
-        data = component.data
-
-        return self._activeRigs[rigName].addComponent(**component.data)
+        return self._activeRigs[rigName].addComponent(**COMPONENT_TYPES[type])
 
     def removeComponent(self, rigName, id):
 

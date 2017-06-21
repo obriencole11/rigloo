@@ -3,6 +3,7 @@ from Qt.QtCore import Slot, Signal
 import logging
 import uuid
 from collections import OrderedDict
+from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
 
 ##############################
 #          Logging           #
@@ -364,6 +365,66 @@ class TestViewController(ViewController):
 #         UI Windows         #
 ##############################
 
+
+class SaveLocationPopup(QtWidgets.QFileDialog):
+    def __init__(self, parent=None):
+        super(SaveLocationPopup, self).__init__(parent=parent)
+
+class CreateRigWindow(QtWidgets.QWidget):
+
+    # A signal for creating rigs, send the name and the location
+    onCreateRig = Signal(str, str)
+
+    def __init__(self, parent=None, directory=''):
+        super(CreateRigWindow, self).__init__(parent=parent)
+
+        # Create base widget and layout
+        createRigLayout = QtWidgets.QVBoxLayout()
+        self.setLayout(createRigLayout)
+
+        # Set the title of the widget
+        self.setWindowTitle('Create Rig')
+
+        # Create a layout for the inputs
+        inputLayout = QtWidgets.QFormLayout()
+        createRigLayout.addLayout(inputLayout)
+
+        # Add a rig name line edit
+        nameInput = QtWidgets.QLineEdit(self)
+        inputLayout.addRow('Name: ', nameInput)
+
+        # Create the directory popuo
+        self.loadPopup = QtWidgets.QFileDialog(self)
+        #self.loadPopup.setFileMode(QtWidgets.QFileDialog.Directory)
+        #self.loadPopup.setOption(QtWidgets.QFileDialog.ShowDirsOnly)
+        #self.loadPopup.setOption(QtWidgets.QFileDialog.DontResolveSymlinks)
+
+        self.loadPopup.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
+        self.loadPopup.setNameFilter(("All JSON files (*.json)"))
+        self.loadPopup.finished.connect(self.setDirectory)
+
+        # Add a get directory button
+        directoryLayout = QtWidgets.QHBoxLayout()
+        self.directoryInput = QtWidgets.QLineEdit(self)
+        self.directoryInput.setText(directory)
+        self.directoryButton = QtWidgets.QPushButton('Browse', self)
+        self.directoryButton.clicked.connect(self.loadPopup.show)
+        directoryLayout.addWidget(self.directoryInput)
+        directoryLayout.addWidget(self.directoryButton)
+        inputLayout.addRow('Save Location: ', directoryLayout)
+
+        # Add a create and cancel button
+        buttonLayout = QtWidgets.QHBoxLayout()
+        self.createButton = QtWidgets.QPushButton('Create', self)
+        cancelButton = QtWidgets.QPushButton('Cancel', self)
+        buttonLayout.addWidget(self.createButton)
+        buttonLayout.addWidget(cancelButton)
+        createRigLayout.addLayout(buttonLayout)
+
+    @Slot()
+    def setDirectory(self):
+        self.directoryInput.setText(self.loadPopup.directory().path())
+
 class MainComponentWindow(QtWidgets.QMainWindow):
 
     # Event Signals for main button presses
@@ -398,7 +459,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     onUpdateComponentWidgets = Signal(dict)
 
     def __init__(self, parent=None):
-        QtWidgets.QMainWindow.__init__(self, parent)
+        super(MainComponentWindow, self).__init__(parent=parent)
 
         # Create a list for storing component widgets
         self._componentWidgets = []
@@ -416,27 +477,36 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # Set the default state of the window
         self.setWindowTitle = ('RigTools Component Manager')
 
-        self.objectName = 'Rigtools Component Manager'
-
         # Create the menu bar
         self._createMenuBar()
-
 
         # Set up the create rig widget (This will create a main_widget and main_layout
         self._createMainWidget()
 
-    def test(self):
-        print 'AAAAAAAAAAA'
-
     def _createMenuBar(self):
+
+        # Create Rig popup
+        self.createRigWindow = CreateRigWindow(self.main_widget)
+        self.createRigWindow.onCreateRig.connect(self.onCreateNewRigClicked)
+
+        # Loading file dialog
+        self.loadDialog = QtWidgets.QFileDialog()
+
+
+        # Saving file dialog
+        saveDialog = QtWidgets.QFileDialog()
 
         newAction = QtWidgets.QAction('New Rig', self)
         newAction.setStatusTip('New Rig')
-        newAction.triggered.connect(self.onCreateNewRigClicked)
+        #newAction.triggered.connect(self.onCreateNewRigClicked)
+        newAction.triggered.connect(self.createRigWindow.show)
 
         saveAction = QtWidgets.QAction('Save Rig', self)
         saveAction.setStatusTip('Save the current rig')
         saveAction.triggered.connect(self.onSaveRigClicked)
+
+        saveAsAction = QtWidgets.QAction('Save Rig as...', self)
+        saveAsAction.setStatusTip('Save the current rig as...')
 
         loadAction = QtWidgets.QAction('Load Rig', self)
         loadAction.setStatusTip('Load a rig')
@@ -448,6 +518,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         fileMenu = menubar.addMenu('File')
         fileMenu.addAction(newAction)
         fileMenu.addAction(saveAction)
+        fileMenu.addAction(saveAsAction)
         fileMenu.addAction(loadAction)
 
     def _createMainWidget(self):
@@ -522,7 +593,6 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         self.scrollWidget = scroll
 
-
     ##### Controller Slots #####
 
     @Slot(dict, list, list)
@@ -561,7 +631,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
                 index = len(componentData) + 1
 
             # Create a widget for the component
-            widget = ComponentWidget(data['name'], data, self, id,
+            widget = ComponentWidget(data['name'], componentData, self, id,
                                      componentTypeData,
                                      controlTypeData,
                                      index)
@@ -667,6 +737,10 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         return onAddComponent
 
+class MayaComponentWindow(MayaQWidgetDockableMixin, MainComponentWindow):
+
+    def __init__(self, parent=None):
+        super(MayaComponentWindow, self).__init__(parent=parent)
 
 ##############################
 #      Component Widget      #
@@ -688,16 +762,17 @@ class ComponentWidget(QtWidgets.QWidget):
     updateComponentData = Signal(dict)
     onAddSelectedClicked = Signal()
 
-    def __init__(self, name, argumentDict, parent, id, componentTypeData, controlTypeData, index):
+    def __init__(self, name, componentData, parent, id, componentTypeData, controlTypeData, index):
         QtWidgets.QWidget.__init__(self)
 
         # Grab a reference to the parent widget
         self.parent = parent
 
         # Grab a reference to the component dictionary
-        self.arguments = argumentDict
+        self.arguments = componentData[id]
 
-        # Grab a reference to the type data
+        # Grab a reference to the data
+        self.componentData = componentData
         self.componentTypeData = componentTypeData
         self.controlTypeData = controlTypeData
 
@@ -752,7 +827,7 @@ class ComponentWidget(QtWidgets.QWidget):
 
             # Create the widget for the argument
             try:
-                widget = COMPONENT_SETTINGS[key](self, self.arguments, self.componentTypeData, self.controlTypeData)
+                widget = COMPONENT_SETTINGS[key](self, self.componentData, self.componentTypeData, self.controlTypeData)
                 widget.value = value
                 self.argumentWidgets[key] = widget
 
@@ -960,21 +1035,31 @@ class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
         # Alert the component when a value is changed
         self.activated.connect(self.onValueChanged)
 
-        self.addItems(componentTypeData)
+        # Add all the components names from the componentData
+        id = parent.id
+        self.addItems([value['name'] for key, value in componentData.iteritems() if key is not id])
+        self.addItem('world')
+
+        # Grab a reference to the componentData
+        self.componentData = componentData
+
+        # Create a variable to hold the current selections id
+        self._id = None
 
     @property
     def value(self):
         if self.currentText() is 'world':
             return None
         else:
-            return self.currentText()
+            return self._id
 
     @value.setter
     def value(self, value):
         if value is None:
             self.setCurrentText('world')
         else:
-            self.setCurrentText(value)
+            self._id = value
+            self.setCurrentText(self.componentData[value]['name'])
 
 class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
@@ -997,6 +1082,7 @@ class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
 
     @property
     def value(self):
+        print [spinBox.value() for spinBox in self.spinBoxes]
         return [spinBox.value() for spinBox in self.spinBoxes]
 
     @value.setter
@@ -1010,7 +1096,7 @@ class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
         QtWidgets.QLineEdit.__init__(self, parent)
 
         # Alert the component widget when a value is changed
-        self.textChanged.connect(self.onValueChanged)
+        self.editingFinished.connect(self.onValueChanged)
 
     @property
     def value(self):
