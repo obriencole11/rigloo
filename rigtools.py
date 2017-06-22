@@ -616,15 +616,14 @@ class Rig(object):
 
     def removeComponent(self, id):
 
-        # Grab the component
-        component = self._components[id]
-
-        # If it is built, remove it
-        if component.active:
-            component.remove()
+        # Try to remove the selected component
+        try:
+            self._components[id].remove()
+        except KeyError:
+            pass
 
         # Remove the component from the component dictionary
-        self._componentData[id] = None
+        del self._componentData[id]
 
     def setComponent(self, id, attr, value):
 
@@ -1386,7 +1385,7 @@ class RigToolsModel(object):
 
     def removeComponent(self, rigName, id):
 
-        self._activeRigs[rigName].removeComponent(id)
+        return self._activeRigs[rigName].removeComponent(id)
 
     def setComponentValue(self, rigName, id, attr, value):
         self._activeRigs[rigName].setComponent(id, attr, value)

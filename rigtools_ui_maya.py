@@ -56,6 +56,13 @@ class ModelController(ui.ViewController):
         self._refreshView()
 
     @Slot(str)
+    def removeComponent(self, id):
+        # Tells the model to remove the specified component
+        # Then refreshed the view
+        self._model.removeComponent(self._currentRig, id)
+        self._refreshView()
+
+    @Slot(str)
     def addSelected(self, id):
         # Adds selected joints to the specified component
         # Then refresh the view
@@ -142,7 +149,8 @@ class ModelController(ui.ViewController):
     def _refreshView(self):
         # Update the view's componentData
         # Tell the view to regenerate components
-        self.onRefreshComponents.emit(self.componentData, self.componentTypeData, self.controlTypeData)
+        self.onRefreshComponents.emit(self.componentData, self.componentTypeData,
+                                      self.controlTypeData, self.componentSettings)
 
 
     ##### private properties #####

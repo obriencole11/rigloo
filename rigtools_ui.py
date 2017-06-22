@@ -29,7 +29,7 @@ stream_handler.setLevel(logging.DEBUG)
 class BaseController(QtCore.QObject):
 
     # A signal to tell the ui to regenerate its components
-    onRefreshComponents = Signal(dict, list, list)
+    onRefreshComponents = Signal(dict, list, list, dict)
 
     # Signals to let the view and its widgets know type data was updated
     # The dict is the updated type data
@@ -69,6 +69,12 @@ class BaseController(QtCore.QObject):
     def addComponent(self, componentType):
         # Tells the model to add a new component
         # Then refreshes the view's components
+        raise NotImplementedError
+
+    @Slot(str)
+    def removeComponent(self, id):
+        # Tells the model to remove the specified component
+        # Then refreshed the view
         raise NotImplementedError
 
     @Slot(str)
@@ -117,6 +123,11 @@ class BaseController(QtCore.QObject):
         # Send the update button signal for view
         raise NotImplementedError
 
+    @Slot(bool)
+    def toggleDebug(self, value):
+        # If debug on, refresh the ui with debug componentSettings
+        # Otherwise refresh with just the default
+        raise NotImplementedError
 
     #### Private Methods ####
 
@@ -184,6 +195,30 @@ class ViewController(BaseController):
         self._window.onBakeRigClicked.connect(self.bakeRig)
         self._window.onRefreshRigClicked.connect(self.refreshRig)
         self._window.onBindRigClicked.connect(self.bindRig)
+        self._window.onDebugToggled.connect(self.toggleDebug)
+        self._window.onRemoveComponentClicked.connect(self.removeComponent)
+
+        # Create a private variable to store the current component settings
+        self._componentSettings = dict(COMPONENT_SETTINGS)
+
+
+    @Slot(bool)
+    def toggleDebug(self, value):
+        # If debug on, refresh the ui with debug componentSettings
+        # Otherwise refresh with just the default
+        logger.info('TestViewController: toggleDebud signal received. Value: ' + str(value))
+
+        if value:
+            self._componentSettings.update(dict(COMPONENT_SETTINGS_DEBUG))
+        else:
+            self._componentSettings = dict(COMPONENT_SETTINGS)
+
+        self._refreshView()
+
+    @property
+    def componentSettings(self):
+        return self._componentSettings
+
 
 class TestViewController(ViewController):
 
@@ -212,7 +247,10 @@ class TestViewController(ViewController):
     def _refreshView(self):
         # Update the view's componentData
         # Tell the view to regenerate components
-        self.onRefreshComponents.emit(self._componentData, self._componentTypeData, self._controlTypeData)
+        self.onRefreshComponents.emit(self._componentData,
+                                      self._componentTypeData,
+                                      self._controlTypeData,
+                                      self.componentSettings)
 
     ##### View Slots #####
 
@@ -279,6 +317,13 @@ class TestViewController(ViewController):
 
         self._componentData[id] = component
 
+        self._refreshView()
+
+    @Slot(str)
+    def removeComponent(self, id):
+        # Tells the model to remove the specified component
+        # Then refreshed the view
+        del self._componentData[id]
         self._refreshView()
 
     @Slot(str)
@@ -401,9 +446,17 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     # The string is the name of the component type
     onAddComponentClicked = Signal(str)
 
+    # A signal for removing a component
+    # The string is the id of the component
+    onRemoveComponentClicked = Signal(str)
+
     # A signal to let the control know it should add selected joints to a component
     # The str is the id of the component to update
     onAddSelectedClicked = Signal(str)
+
+    # A signal to let the control know it should switch to debug mode
+    # The bool is whether debug should be enabled
+    onDebugToggled = Signal(bool)
 
     # A signal to let the control know a component was updated
     # The string is the id of the component, the dict is the componentData
@@ -459,15 +512,23 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         loadAction.setStatusTip('Load a rig')
         loadAction.triggered.connect(self.onLoadRig)
 
+        debugAction = QtWidgets.QAction('Debug Mode', self)
+        debugAction.setCheckable(True)
+        debugAction.setChecked(False)
+        debugAction.setStatusTip('Toggle Debug Mode')
+        debugAction.toggled.connect(self.onDebugToggled)
+
         self.statusBar()
 
         menubar = self.menuBar()
 
         fileMenu = menubar.addMenu('File')
+        settingsMenu = menubar.addMenu('Settings')
         fileMenu.addAction(newAction)
         fileMenu.addAction(saveAction)
         fileMenu.addAction(saveAsAction)
         fileMenu.addAction(loadAction)
+        settingsMenu.addAction(debugAction)
 
     def _createMainWidget(self):
 
@@ -557,7 +618,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     @Slot(dict, list, list)
     # The controller calls this to regenerate the component ui
     # The dict is an updated version of the component Data
-    def refreshComponentWidgets(self, componentData, componentTypeData, controlTypeData):
+    def refreshComponentWidgets(self, componentData, componentTypeData, controlTypeData, componentSettings):
 
         self.updateAddComponentMenus(componentTypeData)
 
@@ -594,11 +655,13 @@ class MainComponentWindow(QtWidgets.QMainWindow):
             widget = ComponentWidget(data['name'], componentData, self, id,
                                      componentTypeData,
                                      controlTypeData,
+                                     componentSettings,
                                      index)
 
             # Connect the widgets signals
             widget.onAddSelected.connect(self.onAddSelectedClicked)
             widget.onUpdateData.connect(self.onComponentDataUpdated)
+            widget.onRemoveComponentClicked.connect(self.onRemoveComponentClicked)
 
             # Connect the widget to some window signals
             self.onUpdateComponentWidgets.connect(widget.updateComponentData)
@@ -727,8 +790,9 @@ class ComponentWidget(QtWidgets.QWidget):
     # These alert the ui to changes in the data
     updateComponentData = Signal(dict)
     onAddSelectedClicked = Signal()
+    onRemoveComponentClicked = Signal(str)
 
-    def __init__(self, name, componentData, parent, id, componentTypeData, controlTypeData, index):
+    def __init__(self, name, componentData, parent, id, componentTypeData, controlTypeData, componentSettings, index):
         QtWidgets.QWidget.__init__(self)
 
         # Grab a reference to the parent widget
@@ -741,6 +805,7 @@ class ComponentWidget(QtWidgets.QWidget):
         self.componentData = componentData
         self.componentTypeData = componentTypeData
         self.controlTypeData = controlTypeData
+        self.componentSettings = componentSettings
 
         # Set the widgets title
         self.name = name
@@ -770,66 +835,7 @@ class ComponentWidget(QtWidgets.QWidget):
         vertical_layout.setContentsMargins(5,1,5,1)
         self.setLayout(vertical_layout)
 
-        # Create a button for the title and connect it to the toggle visibility method
-        self.titleButton = QtWidgets.QPushButton(self)
-        self.titleButton.setFlat(True)
-        self.titleButton.setStyleSheet("Text-align:left;")
-        self.titleButton.clicked.connect(self._toggle_visibility)
-        self.titleButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
-        self.titleButton.setMinimumSize(200, 25)
-
-        # Create a layout for the title
-        titleLayout = QtWidgets.QHBoxLayout()
-        titleLayout.setContentsMargins(0, 0, 0, 0)
-        self.titleButton.setLayout(titleLayout)
-        titleLayout.setAlignment(QtCore.Qt.AlignLeft)
-
-        size = QtCore.QSize(15,15)
-
-        # Add an arrow icon
-        self.rightArrowLabel = QtWidgets.QLabel(self.titleButton)
-        self.downArrowLabel = QtWidgets.QLabel(self.titleButton)
-        rightArrow = QtGui.QIcon(':/arrowRight.png').pixmap(size)
-        downArrow = QtGui.QIcon(':/arrowDown.png').pixmap(size)
-        self.rightArrowLabel.setPixmap(rightArrow)
-        self.downArrowLabel.setPixmap(downArrow)
-
-        titleLayout.addWidget(self.rightArrowLabel)
-        titleLayout.addWidget(self.downArrowLabel)
-
-        # Try to add a maya icon to the button
-        try:
-            icon = QtGui.QIcon(self.componentTypeData[self.arguments['type']]['icon'])
-        except KeyError:
-            icon = QtGui.QIcon(self.componentTypeData['Component']['icon'])
-        iconLabel = QtWidgets.QLabel()
-        iconLabel.setPixmap(icon.pixmap(size))
-        titleLayout.addWidget(iconLabel)
-
-        # Add an enabling checkbox
-        checkBox = QtWidgets.QCheckBox()
-        titleLayout.addWidget(checkBox)
-
-        # Add a title
-        title = QtWidgets.QLabel(self._getTitle(self.name))
-        titleLayout.addWidget(title)
-
-        # Add a settings button
-        settingsButton = QtWidgets.QPushButton()
-        settingsButton.setFlat(True)
-        settingsIcon = QtGui.QIcon(':/gear.png')
-        settingsButton.setIcon(settingsIcon)
-
-        # Create a menu for the button
-        settingsMenu = QtWidgets.QMenu(settingsButton)
-        settingsAction = QtWidgets.QAction(settingsMenu)
-        settingsMenu.addAction(settingsAction)
-        settingsButton.setMenu(settingsMenu)
-
-        # Add a layout for the settings button
-        titleLayout.addStretch(1)
-        titleLayout.addWidget(settingsButton)
-        titleLayout.setAlignment(settingsButton, QtCore.Qt.AlignRight)
+        self._addTitle()
 
         vertical_layout.addWidget(self.titleButton)
 
@@ -851,7 +857,7 @@ class ComponentWidget(QtWidgets.QWidget):
 
             # Create the widget for the argument
             try:
-                widget = COMPONENT_SETTINGS[key](self, self.componentData, self.componentTypeData, self.controlTypeData)
+                widget = self.componentSettings[key](self, self.componentData, self.componentTypeData, self.controlTypeData)
                 widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
                 widget.value = value
                 self.argumentWidgets[key] = widget
@@ -873,7 +879,77 @@ class ComponentWidget(QtWidgets.QWidget):
         except KeyError:
             self.hidden = False
 
+    def _addTitle(self):
 
+        # Create a button for the title and connect it to the toggle visibility method
+        self.titleButton = QtWidgets.QPushButton(self)
+        self.titleButton.setFlat(True)
+        self.titleButton.setStyleSheet("Text-align:left;")
+        self.titleButton.clicked.connect(self._toggle_visibility)
+        self.titleButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+        self.titleButton.setMinimumSize(200, 25)
+
+        # Create a layout for the title
+        titleLayout = QtWidgets.QHBoxLayout()
+        titleLayout.setContentsMargins(0, 0, 0, 0)
+        self.titleButton.setLayout(titleLayout)
+        titleLayout.setAlignment(QtCore.Qt.AlignLeft)
+
+        size = QtCore.QSize(15, 15)
+
+        # Add an arrow icon
+        self.rightArrowLabel = QtWidgets.QLabel(self.titleButton)
+        self.downArrowLabel = QtWidgets.QLabel(self.titleButton)
+        rightArrow = QtGui.QIcon(':/arrowRight.png').pixmap(size)
+        downArrow = QtGui.QIcon(':/arrowDown.png').pixmap(size)
+        self.rightArrowLabel.setPixmap(rightArrow)
+        self.downArrowLabel.setPixmap(downArrow)
+
+        titleLayout.addWidget(self.rightArrowLabel)
+        titleLayout.addWidget(self.downArrowLabel)
+
+        # Try to add a maya icon to the button
+        try:
+            icon = QtGui.QIcon(self.componentTypeData[self.arguments['type']]['icon'])
+        except KeyError:
+            icon = QtGui.QIcon(self.componentTypeData['Component']['icon'])
+        self.iconLabel = QtWidgets.QLabel()
+        self.iconLabel.setPixmap(icon.pixmap(size))
+        titleLayout.addWidget(self.iconLabel)
+
+        # Add an enabling checkbox
+        checkBox = QtWidgets.QCheckBox()
+        titleLayout.addWidget(checkBox)
+
+        # Add a title
+        self.title = QtWidgets.QLabel(self._getTitle(self.name))
+        titleLayout.addWidget(self.title)
+
+        # Set the default state of enabled
+        try:
+            self.enabled = self.arguments['enabled']
+        except KeyError:
+            self.enabled = True
+        checkBox.setChecked(self.enabled)
+        checkBox.toggled.connect(self._toggleEnabled)
+
+        # Add a settings button
+        settingsButton = QtWidgets.QPushButton()
+        settingsButton.setFlat(True)
+        settingsIcon = QtGui.QIcon(':/gear.png')
+        settingsButton.setIcon(settingsIcon)
+
+        # Create a menu for the button
+        settingsMenu = QtWidgets.QMenu(settingsButton)
+        settingsAction = QtWidgets.QAction('Remove Component', settingsMenu)
+        settingsAction.triggered.connect(self.onRemoveComponent)
+        settingsMenu.addAction(settingsAction)
+        settingsButton.setMenu(settingsMenu)
+
+        # Add a layout for the settings button
+        titleLayout.addStretch(1)
+        titleLayout.addWidget(settingsButton)
+        titleLayout.setAlignment(settingsButton, QtCore.Qt.AlignRight)
 
     def _toggle_visibility(self):
         self.hidden = not self.hidden
@@ -883,6 +959,10 @@ class ComponentWidget(QtWidgets.QWidget):
             pass
 
 
+        self.onValueChanged()
+
+    def _toggleEnabled(self):
+        self.enabled = not self.enabled
         self.onValueChanged()
 
     def _getTitle(self, name):
@@ -907,7 +987,7 @@ class ComponentWidget(QtWidgets.QWidget):
                 data[key] = self.arguments[key]
 
         data['hidden'] = self.hidden
-
+        data['enabled'] = self.enabled
         return data
 
     @property
@@ -919,6 +999,15 @@ class ComponentWidget(QtWidgets.QWidget):
         self.argumentContainer.setVisible(value)
         self.downArrowLabel.setVisible(value)
         self.rightArrowLabel.setVisible(not value)
+
+    @property
+    def enabled(self):
+        return self.title.isEnabled()
+
+    @enabled.setter
+    def enabled(self, value):
+        self.title.setEnabled(value)
+        self.iconLabel.setEnabled(value)
 
 
     ##### Slots #####
@@ -943,6 +1032,10 @@ class ComponentWidget(QtWidgets.QWidget):
 
         # Tell the window to update this component in the data
         self.onAddSelected.emit(self.id)
+
+    @Slot()
+    def onRemoveComponent(self):
+        self.onRemoveComponentClicked.emit(self.id)
 
 
 ##############################
@@ -1256,12 +1349,17 @@ COMPONENT_SETTINGS = {
     'aimAxis': QAxisWidget,
     'parentSpace': QRigComponentComboBox,
     'uprightSpace': QRigComponentComboBox,
+    'stretchEnabled': QBoolWidget,
+    'squashEnabled': QBoolWidget,
+    'noFlipKnee': QBoolWidget
+}
+
+COMPONENT_SETTINGS_DEBUG = {
     'type': QComponentComboBox,
     'id': QReadOnlyStringWidget,
     'index': QReadOnlyIntWidget,
-    'stretchEnabled': QBoolWidget,
-    'squashEnabled': QBoolWidget,
-    'hidden': QReadOnlyBoolWidget
+    'hidden': QReadOnlyBoolWidget,
+    'enabled': QReadOnlyBoolWidget
 }
 
 COMPONENT_TYPES = {
