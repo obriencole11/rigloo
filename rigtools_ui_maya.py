@@ -79,14 +79,14 @@ class ModelController(ui.ViewController):
 
         self._refreshView()
 
-    @Slot(str)
-    def createRig(self, directory):
+    @Slot()
+    def createRig(self):
         # Tells the model to create a rig with the specified name
         # Tells the view to show the componentData widget and refresh the components
 
         logger.info('Model Controller: CreateRig Signal Received')
 
-        self._currentRig = self._model.createRig(directory)
+        self._currentRig = self._model.createRig()
         self.onNewRig.emit()
         self._refreshView()
 
@@ -105,16 +105,32 @@ class ModelController(ui.ViewController):
         logger.info('Model Controller: SaveRig Signal Received')
         self._model.saveRig(self._currentRig)
 
+    @Slot(str)
+    def saveRigAs(self, directory):
+
+        logger.info('Model Controller: SaveRigAs Signal Received')
+
+        self._currentRig = self._model.saveRigAs(directory, self._currentRig)
+        self.onNewRig.emit()
+        self._refreshView()
+
+
     @Slot()
     def buildRig(self):
         # If the model is not built, build it, otherwise remove it
         # Send update button signal on view
-        if self.built:
-            self._model.removeRig(self._currentRig)
-        else:
-            self._model.buildRig(self._currentRig)
+        error = self._model.isReady(self._currentRig)
 
-        self.onBuiltStateChange.emit(self.built)
+        if error is None:
+            if self.built:
+                self._model.removeRig(self._currentRig)
+            else:
+                self._model.buildRig(self._currentRig)
+
+            self.onBuiltStateChange.emit(self.built)
+        else:
+            self._showError(error)
+
 
     @Slot()
     def bakeRig(self):

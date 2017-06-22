@@ -20,7 +20,8 @@ COMPONENT_TYPES = {
         'aimAxis': [0,1,0],
         'parentSpace': None,
         'uprightSpace': None,
-        'icon': ":/cube.png"
+        'icon': ":/cube.png",
+        'enabled': True
     },
     'FKComponent': {
         'name': 'defaultFKComponent',
@@ -33,7 +34,8 @@ COMPONENT_TYPES = {
         'uprightSpace': None,
         'stretchEnabled': False,
         'squashEnabled': False,
-        'icon': ":/joint.svg"
+        'icon': ":/joint.svg",
+        'enabled': True
     },
     'IKComponent': {
         'name': 'defaultIKComponent',
@@ -46,7 +48,8 @@ COMPONENT_TYPES = {
         'uprightSpace': None,
         'stretchEnabled': False,
         'squashEnabled': False,
-        'icon': ":/ikHandle.svg"
+        'icon': ":/ikHandle.svg",
+        'enabled': True
     }
 }
 
@@ -465,6 +468,19 @@ class Component(object):
     def mainControl(self):
         return self._mainControl
 
+    @property
+    def ready(self):
+        # This property determines whether the component can be built
+        # with its current values
+        # A value of None is considered ready
+
+        error = None
+
+        if len(self._deformTargets) < 1:
+            error = 'Requires at least one deform target.'
+
+        return error
+
 
 class Rig(object):
     '''
@@ -499,17 +515,20 @@ class Rig(object):
 
         # For each component in the component data...
         for id, com in self._componentData.iteritems():
-            # Create an instance of the component's class
-            component = self._createComponent(**com)
+            # Check if component is set to 'enabled'
+            if com['enabled']:
 
-            # Add the component to this rigs active component dictionary
-            self._components[id] = component
+                # Create an instance of the component's class
+                component = self._createComponent(**com)
 
-            # Build the components and grab the group they're spawned in...
-            componentGroup = self._components[id].build()
+                # Add the component to this rigs active component dictionary
+                self._components[id] = component
 
-            # And parent it to this rigs group
-            pmc.parent(componentGroup, self.rigGroup)
+                # Build the components and grab the group they're spawned in...
+                componentGroup = self._components[id].build()
+
+                # And parent it to this rigs group
+                pmc.parent(componentGroup, self.rigGroup)
 
         # For each component, apply the parent space
         # This ensures that all components exist before parenting occurs
@@ -700,6 +719,31 @@ class Rig(object):
     @property
     def baked(self):
         return self._baked
+
+    @property
+    def ready(self):
+        # This iterates through all components and checks if they can be built
+
+        error = None
+
+        message = []
+
+        # For each component in the component data...
+        for id, com in self._componentData.iteritems():
+
+            # Create an instance of the component's class
+            component = self._createComponent(**com)
+
+            # Check if component is set to 'enabled'
+            if component.ready is not None:
+                message.append(com['type'] + ': ' + component.ready)
+
+            del component
+
+        if len(message) > 0:
+            error = "\n".join(message)
+
+        return error
 
 
 class JointComponent(Component):
@@ -1239,6 +1283,22 @@ class IKComponent(StretchJointComponent):
         return polejoint
 
 
+    ### Public Properties
+
+    @property
+    def ready(self):
+        # This property determines whether the component can be built
+        # with its current values
+        # A value of None is considered ready
+
+        error = None
+
+        if len(self._deformTargets) < 3:
+            error = 'Requires at least three deform targets'
+
+        return error
+
+
 class MultiFKComponent(FKComponent):
     '''
     Represents a series of FK Controls.
@@ -1293,13 +1353,25 @@ class RigToolsModel(object):
         # Grab the data handler
         self._data = data
 
-    def createRig(self, directory):
+    def createRig(self):
+
+        # Grab the name from the path
+        name = 'newRig'
+
+        # Create a new set of component data
+        componentData = {}
+
+        # Create a rig and add it to the active rig list
+        self._activeRigs[name] = Rig(name, componentData, None)
+
+        return name
+
+    def saveRigAs(self, directory, rigName):
 
         # Grab the name from the path
         name = os.path.basename(os.path.splitext(directory)[0])
 
-        # Create a new set of component data
-        componentData = {}
+        componentData = self._activeRigs[rigName].componentData
 
         # Create a rig and add it to the active rig list
         self._activeRigs[name] = Rig(name, componentData, directory)
@@ -1389,6 +1461,14 @@ class RigToolsModel(object):
 
     def setComponentValue(self, rigName, id, attr, value):
         self._activeRigs[rigName].setComponent(id, attr, value)
+
+    def isReady(self, rigName):
+        # Checks if the current rig can be built
+
+        if self._activeRigs[rigName].ready is None:
+            return None
+        else:
+            return self._activeRigs[rigName].ready
 
     def isBuilt(self, rigName):
         return self._activeRigs[rigName].built

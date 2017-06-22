@@ -83,8 +83,8 @@ class BaseController(QtCore.QObject):
         # Then refresh the view
         raise NotImplementedError
 
-    @Slot(str)
-    def createRig(self, dir):
+    @Slot()
+    def createRig(self):
         # Tells the model to create a rig with the specified name at the specified directory
         # Tells the view to show the componentData widget and refresh the components
         raise NotImplementedError
@@ -98,6 +98,11 @@ class BaseController(QtCore.QObject):
     @Slot()
     def saveRig(self):
         # Saves the active rig to the model's data
+        raise NotImplementedError
+
+    @Slot(str)
+    def saveRigAs(self, dir):
+        # Saves the rig to a new location
         raise NotImplementedError
 
     @Slot()
@@ -136,7 +141,9 @@ class BaseController(QtCore.QObject):
         # Tell the view to regenerate components
         raise NotImplementedError
 
-
+    def _showError(self, message):
+        # Shows an error message
+        raise NotImplementedError
 
     ##### private properties #####
 
@@ -191,6 +198,7 @@ class ViewController(BaseController):
         self._window.onCreateNewRigClicked.connect(self.createRig)
         self._window.onLoadRigClicked.connect(self.loadRig)
         self._window.onSaveRigClicked.connect(self.saveRig)
+        self._window.onSaveRigAsClicked.connect(self.saveRigAs)
         self._window.onBuildRigClicked.connect(self.buildRig)
         self._window.onBakeRigClicked.connect(self.bakeRig)
         self._window.onRefreshRigClicked.connect(self.refreshRig)
@@ -201,6 +209,11 @@ class ViewController(BaseController):
         # Create a private variable to store the current component settings
         self._componentSettings = dict(COMPONENT_SETTINGS)
 
+    def _showError(self, message):
+        popup = QtWidgets.QMessageBox(self._window)
+        popup.setWindowTitle('Build Failed')
+        popup.setText(message)
+        popup.show()
 
     @Slot(bool)
     def toggleDebug(self, value):
@@ -335,12 +348,12 @@ class TestViewController(ViewController):
         self._componentData[id]['deformTargets'].append('newSelectedJoint')
         self._refreshView()
 
-    @Slot(str)
-    def createRig(self, directory):
-        # Tells the model to create a rig with the specified name
+    @Slot()
+    def createRig(self):
+        # Tells the model to create a rig with no name
         # Set that rig as the current rig
         # Tells the view to show the componentData widget and refresh the components
-        rigName = os.path.basename(os.path.splitext(directory)[0])
+        rigName = uuid.uuid1().hex
         self._componentData = {}
         self.rigs[rigName] = self._componentData
         self.activeRig = rigName
@@ -375,8 +388,18 @@ class TestViewController(ViewController):
     def buildRig(self):
         # If the model is not built, build it, otherwise remove it
         # Send update button signal on view
-        self._built = not self.built
-        self.onBuiltStateChange.emit(self.built)
+
+        error = False
+
+        for id, com in self._componentData.iteritems():
+            if len(com['deformTargets']) < 1:
+                error = True
+
+        if not error:
+            self._built = not self.built
+            self.onBuiltStateChange.emit(self.built)
+        else:
+            self._showError('Not enough deform targets!')
 
     @Slot()
     def bakeRig(self):
@@ -433,7 +456,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
     # A signal for creating a rig
     # The string is the directory
-    onCreateNewRigClicked = Signal(str)
+    onCreateNewRigClicked = Signal()
 
     # A signal for loading rig
     # The string is the directory
@@ -441,6 +464,9 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
     # A signal for saving the current rig
     onSaveRigClicked = Signal()
+
+    # A signal for saving the rig as
+    onSaveRigAsClicked = Signal(str)
 
     # A signal for adding a component
     # The string is the name of the component type
@@ -475,6 +501,9 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # Create a default value for the main widget
         self.main_widget = None
 
+        # Create a default value for the save directory
+        self._directory = None
+
         # Setup the widgets
         self._setup()
 
@@ -498,11 +527,11 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         newAction = QtWidgets.QAction('New Rig', self)
         newAction.setStatusTip('New Rig')
-        newAction.triggered.connect(self.onSaveAs)
+        newAction.triggered.connect(self.onCreateNewRigClicked)
 
         saveAction = QtWidgets.QAction('Save Rig', self)
         saveAction.setStatusTip('Save the current rig')
-        saveAction.triggered.connect(self.onSaveRigClicked)
+        saveAction.triggered.connect(self.onSave)
 
         saveAsAction = QtWidgets.QAction('Save Rig as...', self)
         saveAsAction.setStatusTip('Save the current rig as...')
@@ -737,25 +766,31 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         self._showComponentDataWidget()
 
     @Slot()
+    def onSave(self):
+        print self._directory
+
+        if self._directory is None:
+            self.onSaveAs()
+        else:
+            self.onSaveRigClicked.emit()
+
+    @Slot()
     def onSaveAs(self):
 
         # Create a popup and grab the name (the underscore stores the filter, we don't care about that)
         name, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save New Rig', '', filter="All JSON files (*.json)")
-        self.onCreateNewRigClicked.emit(name)
+        self._directory = name
+        self.onSaveRigAsClicked.emit(name)
 
     @Slot()
     def onLoadRig(self):
 
         # Create a popup and grab the name (the underscore stores the filter, we don't care about that)
         name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'Load Rig', '', filter="All JSON files (*.json)")
+        self._directory = name
         self.onLoadRigClicked.emit(name)
 
     ##### Private Methods #####
-
-    # This returns a dict of component data for a specified component
-    def _getComponentData(self, id):
-
-        raise NotImplementedError
 
     # This adds a menu action for the addComponent menu
     def _onAddComponentGenerator(self, componentName):
@@ -958,7 +993,6 @@ class ComponentWidget(QtWidgets.QWidget):
         except AttributeError:
             pass
 
-
         self.onValueChanged()
 
     def _toggleEnabled(self):
@@ -1022,7 +1056,7 @@ class ComponentWidget(QtWidgets.QWidget):
     # A widget calls this to let the component know something changed
     def onValueChanged(self):
 
-        logger.info('ComponentWidget: onValueChanged Signal received.')
+        logger.info('ComponentWidget: onValueChanged Signal received. Component: ' + self.id)
 
         # Send this components id and value
         self.onUpdateData.emit(self.id, self.value)
@@ -1333,8 +1367,15 @@ class QBoolWidget(QtWidgets.QCheckBox, ComponentArgumentWidget):
 class QReadOnlyBoolWidget(QBoolWidget):
     def __init__(self, *args, **kwargs):
         super(QReadOnlyBoolWidget, self).__init__(*args, **kwargs)
-        self.setCheckable(False)
         self.setEnabled(False)
+
+    @property
+    def value(self):
+        return self.isChecked()
+
+    @value.setter
+    def value(self, value):
+        self.setChecked(value)
 
 
 ##############################
