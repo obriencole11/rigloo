@@ -1,5 +1,6 @@
 from Qt import QtCore, QtWidgets, QtGui
 from Qt.QtCore import Slot, Signal
+import os
 import logging
 import uuid
 from collections import OrderedDict
@@ -76,14 +77,14 @@ class BaseController(QtCore.QObject):
         # Then refresh the view
         raise NotImplementedError
 
-    @Slot()
-    def createRig(self):
-        # Tells the model to create a rig with the specified name
+    @Slot(str)
+    def createRig(self, dir):
+        # Tells the model to create a rig with the specified name at the specified directory
         # Tells the view to show the componentData widget and refresh the components
         raise NotImplementedError
 
-    @Slot()
-    def loadRig(self):
+    @Slot(str)
+    def loadRig(self, dir):
         # Tells the model to load the specified rig
         # tells the view to show the componentData and refresh the components
         raise NotImplementedError
@@ -184,7 +185,6 @@ class ViewController(BaseController):
         self._window.onRefreshRigClicked.connect(self.refreshRig)
         self._window.onBindRigClicked.connect(self.bindRig)
 
-
 class TestViewController(ViewController):
 
     def __init__(self, window, componentData, controlTypeData, componentTypeData):
@@ -240,7 +240,13 @@ class TestViewController(ViewController):
                 'mainControlType': 'default',
                 'deformTargets': ['thigh'],
                 'id': id,
-                'hidden': True
+                'hidden': True,
+                'parentSpace': None,
+                'uprightSpace': None,
+                'aimAxis': [1, 0, 0],
+                'mainControlScale': 10.0,
+                'stretchEnabled': False,
+                'squeashEnabled': False
             }
         elif componentType == 'IKComponent':
             component = {
@@ -250,7 +256,13 @@ class TestViewController(ViewController):
                 'mainControlType' : 'cube',
                 'deformTargets': ['thigh', 'knee', 'foot'],
                 'id' : id,
-                'hidden': True
+                'hidden': True,
+                'parentSpace': None,
+                'uprightSpace': None,
+                'aimAxis': [1, 0, 0],
+                'mainControlScale': 10.0,
+                'stretchEnabled': False,
+                'squeashEnabled': False
             }
         else:
             component = {
@@ -278,12 +290,12 @@ class TestViewController(ViewController):
         self._componentData[id]['deformTargets'].append('newSelectedJoint')
         self._refreshView()
 
-    @Slot()
-    def createRig(self):
+    @Slot(str)
+    def createRig(self, directory):
         # Tells the model to create a rig with the specified name
         # Set that rig as the current rig
         # Tells the view to show the componentData widget and refresh the components
-        rigName = uuid.uuid1().hex
+        rigName = os.path.basename(os.path.splitext(directory)[0])
         self._componentData = {}
         self.rigs[rigName] = self._componentData
         self.activeRig = rigName
@@ -292,14 +304,15 @@ class TestViewController(ViewController):
 
         print self.rigs
 
-    @Slot()
-    def loadRig(self):
+    @Slot(str)
+    def loadRig(self, directory):
         # Tells the model to load the specified rig
         # tells the view to show the componentData and refresh the components
         logger.info('TextViewController: loadRig Signal received.')
 
-        self.activeRig = 'defaultRig'
-        self._componentData = self.rigs['defaultRig']
+        rigName = directory
+        self.activeRig = rigName
+        self._componentData = TEST_COMPONENT_DATA
         self.onNewRig.emit()
         self._refreshView()
 
@@ -365,66 +378,6 @@ class TestViewController(ViewController):
 #         UI Windows         #
 ##############################
 
-
-class SaveLocationPopup(QtWidgets.QFileDialog):
-    def __init__(self, parent=None):
-        super(SaveLocationPopup, self).__init__(parent=parent)
-
-class CreateRigWindow(QtWidgets.QWidget):
-
-    # A signal for creating rigs, send the name and the location
-    onCreateRig = Signal(str, str)
-
-    def __init__(self, parent=None, directory=''):
-        super(CreateRigWindow, self).__init__(parent=parent)
-
-        # Create base widget and layout
-        createRigLayout = QtWidgets.QVBoxLayout()
-        self.setLayout(createRigLayout)
-
-        # Set the title of the widget
-        self.setWindowTitle('Create Rig')
-
-        # Create a layout for the inputs
-        inputLayout = QtWidgets.QFormLayout()
-        createRigLayout.addLayout(inputLayout)
-
-        # Add a rig name line edit
-        nameInput = QtWidgets.QLineEdit(self)
-        inputLayout.addRow('Name: ', nameInput)
-
-        # Create the directory popuo
-        self.loadPopup = QtWidgets.QFileDialog(self)
-        #self.loadPopup.setFileMode(QtWidgets.QFileDialog.Directory)
-        #self.loadPopup.setOption(QtWidgets.QFileDialog.ShowDirsOnly)
-        #self.loadPopup.setOption(QtWidgets.QFileDialog.DontResolveSymlinks)
-
-        self.loadPopup.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
-        self.loadPopup.setNameFilter(("All JSON files (*.json)"))
-        self.loadPopup.finished.connect(self.setDirectory)
-
-        # Add a get directory button
-        directoryLayout = QtWidgets.QHBoxLayout()
-        self.directoryInput = QtWidgets.QLineEdit(self)
-        self.directoryInput.setText(directory)
-        self.directoryButton = QtWidgets.QPushButton('Browse', self)
-        self.directoryButton.clicked.connect(self.loadPopup.show)
-        directoryLayout.addWidget(self.directoryInput)
-        directoryLayout.addWidget(self.directoryButton)
-        inputLayout.addRow('Save Location: ', directoryLayout)
-
-        # Add a create and cancel button
-        buttonLayout = QtWidgets.QHBoxLayout()
-        self.createButton = QtWidgets.QPushButton('Create', self)
-        cancelButton = QtWidgets.QPushButton('Cancel', self)
-        buttonLayout.addWidget(self.createButton)
-        buttonLayout.addWidget(cancelButton)
-        createRigLayout.addLayout(buttonLayout)
-
-    @Slot()
-    def setDirectory(self):
-        self.directoryInput.setText(self.loadPopup.directory().path())
-
 class MainComponentWindow(QtWidgets.QMainWindow):
 
     # Event Signals for main button presses
@@ -434,10 +387,12 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     onRefreshRigClicked = Signal()
 
     # A signal for creating a rig
-    onCreateNewRigClicked = Signal()
+    # The string is the directory
+    onCreateNewRigClicked = Signal(str)
 
     # A signal for loading rig
-    onLoadRigClicked = Signal()
+    # The string is the directory
+    onLoadRigClicked = Signal(str)
 
     # A signal for saving the current rig
     onSaveRigClicked = Signal()
@@ -475,7 +430,10 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         logger.debug('Setting up the Main Window')
 
         # Set the default state of the window
-        self.setWindowTitle = ('RigTools Component Manager')
+        self.setWindowTitle('RigTools Component Manager')
+
+        # Set the starting size
+        self.resize(300, 700)
 
         # Create the menu bar
         self._createMenuBar()
@@ -485,21 +443,9 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
     def _createMenuBar(self):
 
-        # Create Rig popup
-        self.createRigWindow = CreateRigWindow(self.main_widget)
-        self.createRigWindow.onCreateRig.connect(self.onCreateNewRigClicked)
-
-        # Loading file dialog
-        self.loadDialog = QtWidgets.QFileDialog()
-
-
-        # Saving file dialog
-        saveDialog = QtWidgets.QFileDialog()
-
         newAction = QtWidgets.QAction('New Rig', self)
         newAction.setStatusTip('New Rig')
-        #newAction.triggered.connect(self.onCreateNewRigClicked)
-        newAction.triggered.connect(self.createRigWindow.show)
+        newAction.triggered.connect(self.onSaveAs)
 
         saveAction = QtWidgets.QAction('Save Rig', self)
         saveAction.setStatusTip('Save the current rig')
@@ -507,14 +453,16 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         saveAsAction = QtWidgets.QAction('Save Rig as...', self)
         saveAsAction.setStatusTip('Save the current rig as...')
+        saveAsAction.triggered.connect(self.onSaveAs)
 
         loadAction = QtWidgets.QAction('Load Rig', self)
         loadAction.setStatusTip('Load a rig')
-        loadAction.triggered.connect(self.onLoadRigClicked)
+        loadAction.triggered.connect(self.onLoadRig)
 
         self.statusBar()
 
         menubar = self.menuBar()
+
         fileMenu = menubar.addMenu('File')
         fileMenu.addAction(newAction)
         fileMenu.addAction(saveAction)
@@ -530,8 +478,10 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         # Create a vertical layout for the widget and add it
         self.main_widget = QtWidgets.QWidget(self)
+        self.main_widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.main_widget.setMinimumWidth(350)
         self.main_layout = QtWidgets.QVBoxLayout(self.main_widget)
-        self.main_layout.setAlignment(QtCore.Qt.AlignTop)
+        self.main_layout.setSpacing(5)
 
         # Set the main widget as the center widget
         self.setCentralWidget(self.main_widget)
@@ -553,6 +503,8 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         # Create the container widget for the buttons
         layout = QtWidgets.QGridLayout()
+        layout.setSpacing(5)
+        #layout.setContentsMargins(5, 1, 5, 1)
         self.main_layout.addLayout(layout)
 
         # Create an 'AddComponent' button
@@ -585,13 +537,20 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         # Create a scroll area to house container
         scroll = QtWidgets.QScrollArea(self.main_widget)
-        scroll.setWidgetResizable(False)
+        scroll.setWidgetResizable(True)
         scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
 
         self.main_layout.addWidget(scroll)
 
         self.scrollWidget = scroll
+
+    def _addHorizontalLine(self):
+        line = QtWidgets.QFrame(self.main_widget)
+        line.setFrameShape(QtWidgets.QFrame.HLine)
+        line.setFrameShadow(QtWidgets.QFrame.Sunken)
+        line.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        return line
 
     ##### Controller Slots #####
 
@@ -612,15 +571,16 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         # Create a widget to contain the components
         self.componentWidget = QtWidgets.QWidget()
+
         layout = QtWidgets.QVBoxLayout()
         layout.setAlignment(QtCore.Qt.AlignTop)
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.componentWidget.setLayout(layout)
 
-        # Sort the component data by index
-        sortedData = OrderedDict(sorted(componentData.iteritems(), key=lambda t: t[1], reverse=True))
-
-        # Create an empty list to store components hidden state
-        #hiddenData = []
+        # Add a horizontal line to start
+        topLine = self._addHorizontalLine()
+        layout.addWidget(topLine)
 
         # For each component in the components dictionary
         for id, data in componentData.iteritems():
@@ -646,24 +606,16 @@ class MainComponentWindow(QtWidgets.QMainWindow):
             # Add the widget to the component widget dict
             self._componentWidgets.append(widget)
 
-
-            # Try to add the hidden state to the list
-            # If there is no state specified, revert to default
-            #try:
-                #hiddenData.append(data['hidden'])
-            #except KeyError:
-                #hiddenData.append(True)
-
         # Sort the widgets by index
         # Then add the widget to the layout
         list = sorted(self._componentWidgets, key= lambda widget: widget.index)
         for widget in list:
+            # Add the widget
             layout.addWidget(widget)
 
-        # Apply all the hidden states
-        # This is to avoid odd formmatting
-        #for index in range(len(hiddenData)):
-            #self._componentWidgets[index].hidden = hiddenData[index]
+            # Also add a horizontal line
+            line = self._addHorizontalLine()
+            layout.addWidget(line)
 
         # Then emit a signal to update all widgets that care about components
         self.onUpdateComponentWidgets.emit(componentData)
@@ -721,6 +673,19 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     def createRigWidget(self):
         self._showComponentDataWidget()
 
+    @Slot()
+    def onSaveAs(self):
+
+        # Create a popup and grab the name (the underscore stores the filter, we don't care about that)
+        name, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save New Rig', '', filter="All JSON files (*.json)")
+        self.onCreateNewRigClicked.emit(name)
+
+    @Slot()
+    def onLoadRig(self):
+
+        # Create a popup and grab the name (the underscore stores the filter, we don't care about that)
+        name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'Load Rig', '', filter="All JSON files (*.json)")
+        self.onLoadRigClicked.emit(name)
 
     ##### Private Methods #####
 
@@ -745,6 +710,7 @@ class MayaComponentWindow(MayaQWidgetDockableMixin, MainComponentWindow):
 ##############################
 #      Component Widget      #
 ##############################
+
 
 class ComponentWidget(QtWidgets.QWidget):
     '''
@@ -800,34 +766,93 @@ class ComponentWidget(QtWidgets.QWidget):
         # Create a vertical layout to contain everything
         vertical_layout = QtWidgets.QVBoxLayout()
         vertical_layout.setAlignment(QtCore.Qt.AlignTop)
-        vertical_layout.setSizeConstraint(QtWidgets.QLayout.SetFixedSize)
+        vertical_layout.setSpacing(0)
+        vertical_layout.setContentsMargins(5,1,5,1)
         self.setLayout(vertical_layout)
 
         # Create a button for the title and connect it to the toggle visibility method
-        self.title = QtWidgets.QPushButton(self._getTitle(self.name), self)
-        self.title.setFlat(False)
-        self.title.setMinimumSize(300, 0)
-        self.title.clicked.connect(self._toggle_visibility)
-        vertical_layout.addWidget(self.title)
+        self.titleButton = QtWidgets.QPushButton(self)
+        self.titleButton.setFlat(True)
+        self.titleButton.setStyleSheet("Text-align:left;")
+        self.titleButton.clicked.connect(self._toggle_visibility)
+        self.titleButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+        self.titleButton.setMinimumSize(200, 25)
+
+        # Create a layout for the title
+        titleLayout = QtWidgets.QHBoxLayout()
+        titleLayout.setContentsMargins(0, 0, 0, 0)
+        self.titleButton.setLayout(titleLayout)
+        titleLayout.setAlignment(QtCore.Qt.AlignLeft)
+
+        size = QtCore.QSize(15,15)
+
+        # Add an arrow icon
+        self.rightArrowLabel = QtWidgets.QLabel(self.titleButton)
+        self.downArrowLabel = QtWidgets.QLabel(self.titleButton)
+        rightArrow = QtGui.QIcon(':/arrowRight.png').pixmap(size)
+        downArrow = QtGui.QIcon(':/arrowDown.png').pixmap(size)
+        self.rightArrowLabel.setPixmap(rightArrow)
+        self.downArrowLabel.setPixmap(downArrow)
+
+        titleLayout.addWidget(self.rightArrowLabel)
+        titleLayout.addWidget(self.downArrowLabel)
+
+        # Try to add a maya icon to the button
+        try:
+            icon = QtGui.QIcon(self.componentTypeData[self.arguments['type']]['icon'])
+        except KeyError:
+            icon = QtGui.QIcon(self.componentTypeData['Component']['icon'])
+        iconLabel = QtWidgets.QLabel()
+        iconLabel.setPixmap(icon.pixmap(size))
+        titleLayout.addWidget(iconLabel)
+
+        # Add an enabling checkbox
+        checkBox = QtWidgets.QCheckBox()
+        titleLayout.addWidget(checkBox)
+
+        # Add a title
+        title = QtWidgets.QLabel(self._getTitle(self.name))
+        titleLayout.addWidget(title)
+
+        # Add a settings button
+        settingsButton = QtWidgets.QPushButton()
+        settingsButton.setFlat(True)
+        settingsIcon = QtGui.QIcon(':/gear.png')
+        settingsButton.setIcon(settingsIcon)
+
+        # Create a menu for the button
+        settingsMenu = QtWidgets.QMenu(settingsButton)
+        settingsAction = QtWidgets.QAction(settingsMenu)
+        settingsMenu.addAction(settingsAction)
+        settingsButton.setMenu(settingsMenu)
+
+        # Add a layout for the settings button
+        titleLayout.addStretch(1)
+        titleLayout.addWidget(settingsButton)
+        titleLayout.setAlignment(settingsButton, QtCore.Qt.AlignRight)
+
+        vertical_layout.addWidget(self.titleButton)
 
         # Create a container for the arguments
         self.argumentContainer = QtWidgets.QWidget(self)
+        self.argumentContainer.setMinimumWidth(300)
         vertical_layout.addWidget(self.argumentContainer)
 
         # Create a form layout to house the arguments
         form_layout = QtWidgets.QFormLayout()
-        form_layout.setRowWrapPolicy(QtWidgets.QFormLayout.RowWrapPolicy.WrapLongRows)
+        form_layout.setLabelAlignment(QtCore.Qt.AlignLeft)
+        form_layout.setFormAlignment(QtCore.Qt.AlignLeft)
         self.argumentContainer.setLayout(form_layout)
-        form_layout.setAlignment(QtCore.Qt.AlignTop)
 
         # Create a list to store argumentWidgets
         self.argumentWidgets = {}
 
-        for key, value in self.arguments.iteritems():
+        for key, value in sorted(self.arguments.iteritems()):
 
             # Create the widget for the argument
             try:
                 widget = COMPONENT_SETTINGS[key](self, self.componentData, self.componentTypeData, self.controlTypeData)
+                widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
                 widget.value = value
                 self.argumentWidgets[key] = widget
 
@@ -837,21 +862,27 @@ class ComponentWidget(QtWidgets.QWidget):
                 # Add the widget to the form layout
                 form_layout.addRow(key, widget)
             except KeyError:
-                pass
+                logger.debug('Attempting to add an argument, but key is not in settings. Key: '
+                             + key + 'Value: ' + str(value))
 
         self.argumentWidgets['name'].textChanged.connect(self._updateTitle)
 
-
         # Set the default state of visibility
-
         try:
             self.hidden = self.arguments['hidden']
         except KeyError:
-            self.hidden = True
+            self.hidden = False
+
 
 
     def _toggle_visibility(self):
         self.hidden = not self.hidden
+        try:
+            self.arrowLabel.setPixmap(self.arrow2)
+        except AttributeError:
+            pass
+
+
         self.onValueChanged()
 
     def _getTitle(self, name):
@@ -865,7 +896,7 @@ class ComponentWidget(QtWidgets.QWidget):
 
         logger.debug('Generating data from ' + self.name)
 
-        # Create a dictioary to reconstruct data
+        # Create a dictionary to reconstruct data
         data = {}
 
         # Iterate through widgets and grab their values
@@ -886,6 +917,8 @@ class ComponentWidget(QtWidgets.QWidget):
     @hidden.setter
     def hidden(self, value):
         self.argumentContainer.setVisible(value)
+        self.downArrowLabel.setVisible(value)
+        self.rightArrowLabel.setVisible(not value)
 
 
     ##### Slots #####
@@ -910,7 +943,6 @@ class ComponentWidget(QtWidgets.QWidget):
 
         # Tell the window to update this component in the data
         self.onAddSelected.emit(self.id)
-
 
 
 ##############################
@@ -938,6 +970,8 @@ class QTargetList(QtWidgets.QWidget, ComponentArgumentWidget):
         QtWidgets.QWidget.__init__(self, parent)
 
         self.parent = parent
+
+        self.setMaximumHeight(150)
 
         # Create a layout to contain sub widgets
         self.layout = QtWidgets.QVBoxLayout()
@@ -1017,8 +1051,8 @@ class QComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
 
         # Alert the component when a value is changed
         self.activated.connect(self.onValueChanged)
-
-        self.addItems(componentData)
+        self.setEnabled(False)
+        self.addItems([key for key, value in componentTypeData.iteritems()])
 
     @property
     def value(self):
@@ -1090,6 +1124,37 @@ class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
         for num in range(3):
             self.spinBoxes[num].setValue(value[num])
 
+class QAxisWidget(QtWidgets.QComboBox, ComponentArgumentWidget):
+
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
+        QtWidgets.QComboBox.__init__(self, parent)
+
+        # Alert the component when a value is changed
+        self.activated.connect(self.onValueChanged)
+
+        self.axisItems = {
+            '+X': [1, 0, 0],
+            '-X': [-1, 0, 0],
+            '+Y': [0, 1, 0],
+            '-Y': [0, -1, 0],
+            '+Z': [0, 0, 1],
+            '-Z': [0, 0, -1]
+        }
+
+        self.addItems([id for id, value in self.axisItems.iteritems()])
+
+    @property
+    def value(self):
+        return self.axisItems[self.currentText()]
+
+    @value.setter
+    def value(self, value):
+
+        for key, axis in self.axisItems.iteritems():
+            if value == axis:
+                self.setCurrentText(key)
+                break
+
 class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
 
@@ -1106,6 +1171,78 @@ class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
     def value(self, value):
         self.setText(value)
 
+class QScalarWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
+
+        QtWidgets.QLineEdit.__init__(self, parent)
+
+        self.setValidator(QtGui.QDoubleValidator(0, 100, 2, self))
+
+        # Alert the component widget when a value is changed
+        self.editingFinished.connect(self.onValueChanged)
+
+    @property
+    def value(self):
+        return float(self.text())
+
+    @value.setter
+    def value(self, value):
+        self.setText(str(value))
+
+class QReadOnlyStringWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
+
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
+
+        QtWidgets.QLineEdit.__init__(self, parent)
+        self.setReadOnly(True)
+        self.setEnabled(False)
+
+    @property
+    def value(self):
+        return self.text()
+
+    @value.setter
+    def value(self, value):
+        self.setText(value)
+
+class QReadOnlyIntWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
+
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
+
+        QtWidgets.QLineEdit.__init__(self, parent)
+        self.setReadOnly(True)
+        self.setEnabled(False)
+
+    @property
+    def value(self):
+        return int(self.text())
+
+    @value.setter
+    def value(self, value):
+        self.setText(str(value))
+
+class QBoolWidget(QtWidgets.QCheckBox, ComponentArgumentWidget):
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
+
+        QtWidgets.QCheckBox.__init__(self, parent)
+
+        # Alert the component widget when a value is changed
+        self.stateChanged.connect(self.onValueChanged)
+
+    @property
+    def value(self):
+        return self.isChecked()
+
+    @value.setter
+    def value(self, value):
+        self.setChecked(value)
+
+class QReadOnlyBoolWidget(QBoolWidget):
+    def __init__(self, *args, **kwargs):
+        super(QReadOnlyBoolWidget, self).__init__(*args, **kwargs)
+        self.setCheckable(False)
+        self.setEnabled(False)
+
 
 ##############################
 #       UI Settings         #
@@ -1115,16 +1252,57 @@ COMPONENT_SETTINGS = {
     'name': QNameWidget,
     'deformTargets': QTargetList,
     'mainControlType': QControlComboBox,
-    'aimAxis': QVectorWidget,
+    'mainControlScale': QScalarWidget,
+    'aimAxis': QAxisWidget,
     'parentSpace': QRigComponentComboBox,
-    'uprightSpace': QRigComponentComboBox
+    'uprightSpace': QRigComponentComboBox,
+    'type': QComponentComboBox,
+    'id': QReadOnlyStringWidget,
+    'index': QReadOnlyIntWidget,
+    'stretchEnabled': QBoolWidget,
+    'squashEnabled': QBoolWidget,
+    'hidden': QReadOnlyBoolWidget
 }
 
-COMPONENT_TYPES = [
-    'FKComponent',
-    'IKComponent',
-    'GlobalComponent'
-]
+COMPONENT_TYPES = {
+    'Component': {
+        'name': 'defaultComponent',
+        'type': 'Component',
+        'mainControlType': 'default',
+        'mainControlScale': 10.0,
+        'deformTargets': [],
+        'aimAxis': [0,1,0],
+        'parentSpace': None,
+        'uprightSpace': None,
+        'icon': ":/cube.png"
+    },
+    'FKComponent': {
+        'name': 'defaultFKComponent',
+        'type': 'FKComponent',
+        'mainControlType': 'default',
+        'mainControlScale': 10.0,
+        'deformTargets': [],
+        'aimAxis': [1,0,0],
+        'parentSpace': None,
+        'uprightSpace': None,
+        'stretchEnabled': False,
+        'squashEnabled': False,
+        'icon': ":/joint.svg"
+    },
+    'IKComponent': {
+        'name': 'defaultIKComponent',
+        'type': 'IKComponent',
+        'mainControlType': 'cube',
+        'mainControlScale': 10.0,
+        'deformTargets': [],
+        'aimAxis': [1,0,0],
+        'parentSpace': None,
+        'uprightSpace': None,
+        'stretchEnabled': False,
+        'squashEnabled': False,
+        'icon': ":/ikHandle.svg"
+    }
+}
 
 CONTROL_TYPES = [
     'default',
@@ -1141,10 +1319,13 @@ TEST_COMPONENT_DATA = {
         'name': 'leg_L',
         'deformTargets': ['ethan_thigh_L', 'ethan_knee_L', 'ethan_foot_L'],
         'mainControlType': 'cube',
+        'mainControlScale': 10.0,
         'aimAxis': [1, 0, 0],
         'parentSpace': 'hipID',
         'uprightSpace': 'hipID',
-        'hidden': False
+        'hidden': False,
+        'stretchEnabled': False,
+        'squashEnabled': False
     },
     'hipID': {
         'index': 1,
@@ -1165,8 +1346,8 @@ TEST_COMPONENT_DATA = {
         'deformTargets': ['ethan_root'],
         'mainControlType': 'circle',
         'aimAxis': [1, 0, 0],
-        'parentSpace': 'world',
-        'uprightSpace': 'world',
+        'parentSpace': None,
+        'uprightSpace': None,
         'hidden': False
     }
 }
@@ -1201,6 +1382,8 @@ def _test():
 
     # Create the ui controller
     controller = TestViewController(mainWindow, TEST_COMPONENT_DATA, CONTROL_TYPES, COMPONENT_TYPES)
+
+    controller.loadRig('test')
 
     # Show the main window
     mainWindow.show()

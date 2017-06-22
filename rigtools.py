@@ -19,7 +19,8 @@ COMPONENT_TYPES = {
         'deformTargets': [],
         'aimAxis': [0,1,0],
         'parentSpace': None,
-        'uprightSpace': None
+        'uprightSpace': None,
+        'icon': ":/cube.png"
     },
     'FKComponent': {
         'name': 'defaultFKComponent',
@@ -31,7 +32,8 @@ COMPONENT_TYPES = {
         'parentSpace': None,
         'uprightSpace': None,
         'stretchEnabled': False,
-        'squashEnabled': False
+        'squashEnabled': False,
+        'icon': ":/joint.svg"
     },
     'IKComponent': {
         'name': 'defaultIKComponent',
@@ -43,7 +45,8 @@ COMPONENT_TYPES = {
         'parentSpace': None,
         'uprightSpace': None,
         'stretchEnabled': False,
-        'squashEnabled': False
+        'squashEnabled': False,
+        'icon': ":/ikHandle.svg"
     }
 }
 
@@ -468,10 +471,13 @@ class Rig(object):
     An object for building components from a set of component data.
     '''
 
-    def __init__(self, name, componentData):
+    def __init__(self, name, componentData, directory):
 
         # Assign a name, this is mostly for display purposes
         self._name = name
+
+        # Assign the save location for the rig
+        self._directory = directory
 
         # Assign a key to access data
         self._componentData = componentData
@@ -679,6 +685,10 @@ class Rig(object):
     @property
     def componentData(self):
         return self._componentData
+
+    @property
+    def directory(self):
+        return self._directory
 
     @property
     def built(self):
@@ -1257,20 +1267,17 @@ class RigToolsData(object):
     def _getDir(self, rigName):
         return os.path.join(self.dir, rigName + '.json')
 
-    def load(self, rigName):
+    def load(self, directory):
 
         try:
-            with open(self._getDir(rigName)) as c:
+            with open(directory) as c:
                 return json.load(c)
         except IOError:
             return {}
 
-    def save(self, rigName, componentData):
+    def save(self, directory, componentData):
 
-        def jdefault(o):
-            return o.__dict__
-
-        with open(self._getDir(rigName), 'w') as c:
+        with open(directory, 'w') as c:
             json.dump(componentData, c, indent=4)
 
 
@@ -1287,16 +1294,19 @@ class RigToolsModel(object):
         # Grab the data handler
         self._data = data
 
-    def createRig(self, name):
+    def createRig(self, directory):
+
+        # Grab the name from the path
+        name = os.path.basename(os.path.splitext(directory)[0])
 
         # Create a new set of component data
         componentData = {}
 
         # Create a rig and add it to the active rig list
-        self._activeRigs[name] = Rig(name, componentData)
+        self._activeRigs[name] = Rig(name, componentData, directory)
 
         # Save a file for the rig
-        self._data.save(name, componentData)
+        self._data.save(directory, componentData)
 
         return name
 
@@ -1352,13 +1362,17 @@ class RigToolsModel(object):
         self._activeRigs[rigName].remove()
 
     def saveRig(self, rigName):
-        self._data.save(rigName, self._activeRigs[rigName].componentData)
+        self._data.save(self._activeRigs[rigName].directory, self._activeRigs[rigName].componentData)
 
-    def loadRig(self, rigName):
+    def loadRig(self, directory):
 
-        componentData = self._data.load(rigName)
+        name = os.path.basename(os.path.splitext(directory)[0])
 
-        self._activeRigs[rigName] = Rig(rigName, componentData)
+        componentData = self._data.load(directory)
+
+        self._activeRigs[name] = Rig(name, componentData, directory)
+
+        return name
 
     def rigData(self, rigName):
         return self._activeRigs[rigName].componentData

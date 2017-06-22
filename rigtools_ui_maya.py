@@ -4,6 +4,7 @@ import controltools
 import pymel.core as pmc
 import uuid
 import logging
+import os
 from Qt import QtCore, QtWidgets
 from Qt.QtCore import Slot, Signal
 
@@ -71,26 +72,25 @@ class ModelController(ui.ViewController):
 
         self._refreshView()
 
-    @Slot()
-    def createRig(self):
+    @Slot(str)
+    def createRig(self, directory):
         # Tells the model to create a rig with the specified name
         # Tells the view to show the componentData widget and refresh the components
 
         logger.info('Model Controller: CreateRig Signal Received')
 
-        self._currentRig = self._model.createRig(uuid.uuid1().hex)
+        self._currentRig = self._model.createRig(directory)
         self.onNewRig.emit()
         self._refreshView()
 
-    @Slot()
-    def loadRig(self):
+    @Slot(str)
+    def loadRig(self, directory):
         # Tells the model to load the specified rig
         # tells the view to show the componentData and refresh the components
         logger.info('Model Controller: LoadRig Signal Received')
-        raise NotImplementedError
-        #self._model.loadRig(name)
-        #self.onNewRig.emit()
-        #self._refreshView()
+        self._currentRig = self._model.loadRig(directory)
+        self.onNewRig.emit()
+        self._refreshView()
 
     @Slot()
     def saveRig(self):
