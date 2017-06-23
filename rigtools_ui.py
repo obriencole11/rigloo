@@ -1196,6 +1196,9 @@ class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
         # Alert the component when a value is changed
         self.activated.connect(self.onValueChanged)
 
+        # Grab a reference to the componentData
+        self.componentData = componentData
+
         # Add all the components names from the componentData
         id = parent.id
         self.addItems([value['name'] for key, value in componentData.iteritems() if key is not id])
@@ -1212,7 +1215,10 @@ class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
         if self.currentText() is 'world':
             return None
         else:
-            return self._id
+            for key, value in self.componentData.iteritems():
+                if value['name'] == self.currentText():
+                    return key
+            logger.exception('RigComponentComboBox: The selected value did not match any components name')
 
     @value.setter
     def value(self, value):

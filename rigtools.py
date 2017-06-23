@@ -163,16 +163,12 @@ class Component(object):
         self._uprightSpace = uprightSpace
         self._parentSpace = parentSpace
         self._mainControl = None
-        self.parentSpaceChanged = Signal()
 
         self._deformTargets = [pmc.PyNode(target) for target in deformTargets]
 
         self._mainControlType = ControlCurve(curveType=mainControlType,
                                              scale=mainControlScale,
                                              color=mainControlColor)
-
-        self.parentSpaceChanged.connect(self._resetParentSpace)
-
 
     #### Public Methods ####
 
@@ -206,9 +202,9 @@ class Component(object):
 
             return self.componentGroup
 
-    def parent(self):
+    def parent(self, components):
         # Set the parentSpace
-        self._resetParentSpace()
+        self._addParentSpace(components)
 
     def zero(self):
         # Sets the default localspacebuffer position
@@ -230,8 +226,6 @@ class Component(object):
 
     def bind(self):
         if not self._bound:
-            # Apply the parent space
-            self._resetParentSpace()
 
             # Apply a parent constraint to each deform target
             for joint in self._deformTargets:
@@ -324,43 +318,87 @@ class Component(object):
         # This will allow the curves to scale with the global control
         pmc.connectAttr(parentDecomposeMatrixNode.outputScale, self.parentSpaceBuffer.scale)
 
-    def _resetParentSpace(self):
+    def _addParentSpace(self, components):
 
-        # Only change the space if the skeleton is active
-        if self.active:
+        # Grab the initial position
+        oldMatrix = self.localSpaceBuffer.getMatrix(worldSpace = True)
 
-            # Grab the localSpaceBuffer's current orientation
-            oldMatrix = self.localSpaceBuffer.getMatrix(worldSpace=True)
+        # Create a choice node to determine parentSpace
+        parentSpaceChoiceNode = pmc.createNode('choice', name=self.name + '_parentSpaceChoice')
+        uprightSpaceChoiceNode = pmc.createNode('choice', name=self.name + '_uprightSpaceChoice')
+        self._utilityNodes['parentSpaceChoiceNode'] = parentSpaceChoiceNode
+        self._utilityNodes['uprightSpaceChoiceNode'] = uprightSpaceChoiceNode
 
-            # If uprightSpace is set to None, parent to worldSpace
-            if self.uprightSpace is None:
+        # Generate the names for the enums
+        comNames = [str(value.name) for key, value in components.iteritems() if value.name is not self._name]
+        names = ['world'] + comNames
+        enumString = ':'.join(names)
 
-                # Set the worldSpaceMatrix to the identity Matrix
-                identityMatrix = dt.Matrix()
+        # Find the values for the selected space
+        if self._parentSpace is None:
+            startParentIndex = 0
+        else:
+            startParentIndex = names.index(components[self._parentSpace].name)
+        if self._uprightSpace is None:
+            startUprightIndex = 0
+        else:
+            startUprightIndex = names.index(components[self._uprightSpace].name)
 
-                pmc.setAttr(self._utilityNodes['uprightMultMatrixNode'].matrixIn[0], identityMatrix,
-                                force=True)
-            else:
-                # Connect the components worldSpaceMatrix to this components multiply matrix utility node
-                pmc.connectAttr(self.uprightSpace.worldSpaceMatrix,
-                                self._utilityNodes['uprightMultMatrixNode'].matrixIn[0],
-                                force=True)
+        # Set the world option
+        identityMatrix = dt.Matrix()
 
-            if self.parentSpace is None:
+        worldParentMultMatrix = pmc.createNode('multMatrix', name=self.name + '_parentMult_0')
+        self._utilityNodes['parentSpaceMult_0'] = worldParentMultMatrix
+        pmc.setAttr(worldParentMultMatrix.matrixIn[0], self.mainControl.getMatrix(worldSpace=True))
+        pmc.setAttr(worldParentMultMatrix.matrixIn[1], identityMatrix)
+        pmc.connectAttr(worldParentMultMatrix.matrixSum, parentSpaceChoiceNode.input[0])
 
-                # Set the worldSpaceMatrix to the identity Matrix
-                identityMatrix = dt.Matrix()
+        worldUprightMultMatrix = pmc.createNode('multMatrix', name=self.name + '_uprightMult_0')
+        self._utilityNodes['uprightSpaceMult_0'] = worldUprightMultMatrix
+        pmc.setAttr(worldUprightMultMatrix.matrixIn[0], self.mainControl.getMatrix(worldSpace=True))
+        pmc.setAttr(worldUprightMultMatrix.matrixIn[1], identityMatrix)
+        pmc.connectAttr(worldUprightMultMatrix.matrixSum, uprightSpaceChoiceNode.input[0])
 
-                pmc.setAttr(self._utilityNodes['parentMultMatrixNode'].matrixIn[0], identityMatrix,
-                        force=True)
-            else:
-                # Connect the components worldSpaceMatrix to this components multiply matrix utility node
-                pmc.connectAttr(self.parentSpace.worldSpaceMatrix,
-                                self._utilityNodes['parentMultMatrixNode'].matrixIn[0],
-                                force=True)
+        # Create options for the rest
+        for index in range(len(comNames)):
+            parentComponent = [value for key, value in components.iteritems()
+                               if value.name == comNames[index]][0]
 
-            # Move the localSpaceBuffer back into its original orientation
-            self.localSpaceBuffer.setMatrix(oldMatrix, worldSpace=True)
+            multMatrix = pmc.createNode('multMatrix', name=self.name + '_parentMult_' + str(index+1))
+            self._utilityNodes['parentSpaceMult_' + str(index+1)] = multMatrix
+            pmc.setAttr(multMatrix.matrixIn[0], self._deformTargets[0].getMatrix(worldSpace=True))
+            pmc.setAttr(multMatrix.matrixIn[1], parentComponent._deformTargets[0].getMatrix(worldSpace=True).inverse())
+            pmc.connectAttr(parentComponent.mainControl.worldMatrix[0], multMatrix.matrixIn[2])
+            pmc.connectAttr(multMatrix.matrixSum, parentSpaceChoiceNode.input[index+1])
+        for index in range(len(comNames)):
+            parentComponent = [value for key, value in components.iteritems()
+                               if value.name == comNames[index]][0]
+            multMatrix = pmc.createNode('multMatrix', name=self.name + '_uprightMult_' + str(index+1))
+            self._utilityNodes['uprightSpaceMult_' + str(index+1)] = multMatrix
+            pmc.setAttr(multMatrix.matrixIn[0], self._deformTargets[0].getMatrix(worldSpace=True))
+            pmc.setAttr(multMatrix.matrixIn[1], parentComponent._deformTargets[0].getMatrix(worldSpace=True).inverse())
+            pmc.connectAttr(parentComponent.mainControl.worldMatrix[0], multMatrix.matrixIn[2])
+            pmc.connectAttr(multMatrix.matrixSum, uprightSpaceChoiceNode.input[index+1])
+
+        # Create an attribute on the mainControl for switching space
+        pmc.addAttr(self.mainControl, sn='ps', ln='parentSpace', at='enum', en=enumString, h=False, k=True)
+        pmc.addAttr(self.mainControl, sn='us', ln='uprightSpace',at='enum',  en=enumString, h=False, k=True)
+
+        # Connect it to the choice value
+        pmc.connectAttr(self.mainControl.parentSpace, parentSpaceChoiceNode.selector)
+        pmc.connectAttr(self.mainControl.uprightSpace, uprightSpaceChoiceNode.selector)
+
+        # Set them to the default values
+        self.mainControl.setAttr('parentSpace', startParentIndex)
+        self.mainControl.setAttr('uprightSpace', startUprightIndex)
+
+        # Connect the output of the choices to their corresponding multMatrix
+        pmc.connectAttr(parentSpaceChoiceNode.output, self._utilityNodes['parentMultMatrixNode'].matrixIn[0])
+        pmc.connectAttr(uprightSpaceChoiceNode.output, self._utilityNodes['uprightMultMatrixNode'].matrixIn[0])
+
+        # Set the position of the localSpace
+        self.localSpaceBuffer.setMatrix(identityMatrix, objectSpace=True)
+
 
     #### Public Properties ####
 
@@ -440,7 +478,6 @@ class Component(object):
     @parentSpace.setter
     def parentSpace(self, value):
         self._parentSpace = value
-        self.parentSpaceChanged.fire(self)
 
     @property
     def uprightSpace(self):
@@ -452,7 +489,6 @@ class Component(object):
     @uprightSpace.setter
     def uprightSpace(self, value):
         self._uprightSpace = value
-        self.parentSpaceChanged.fire(self)
 
     @property
     def uprightAndParentSpace(self):
@@ -462,7 +498,6 @@ class Component(object):
     def uprightAndParentSpace(self, value):
         self._uprightSpace = value
         self._parentSpace = value
-        self.parentSpaceChanged.fire(self)
 
     @property
     def mainControl(self):
@@ -533,7 +568,7 @@ class Rig(object):
         # For each component, apply the parent space
         # This ensures that all components exist before parenting occurs
         for id, com in self._components.iteritems():
-            com.parent()
+            com.parent(self._components)
 
         self._built = True
 
@@ -849,8 +884,6 @@ class JointComponent(Component):
     def bind(self):
 
         if not self._bound:
-            # Set the parentSpace
-            self._resetParentSpace()
 
             # Constrain the startJoint to the mainControl
             self._constraints.append(pmc.parentConstraint(self.mainControl, self._endJoint, name=self.name+'_mainControlConstraint'))
@@ -1134,9 +1167,6 @@ class IKComponent(StretchJointComponent):
     def bind(self):
 
         if not self._bound:
-
-            # Set the parentSpace
-            self._resetParentSpace()
 
             # Create the ikHandle and effector
             self._handle, self._effector = pmc.ikHandle(sj=self._startJoint, ee=self.endJoint)
