@@ -16,7 +16,7 @@ COMPONENT_TYPES = {
         'type': 'Component',
         'mainControlType': 'default',
         'mainControlScale': 10.0,
-        'deformTargets': [],
+        'target': None,
         'aimAxis': [0,1,0],
         'parentSpace': None,
         'uprightSpace': None,
@@ -49,6 +49,8 @@ COMPONENT_TYPES = {
         'stretchEnabled': False,
         'squashEnabled': False,
         'icon': ":/ikHandle.svg",
+        'noFlipKnee': False,
+        'poleControlCurveType': 'triangle',
         'enabled': True
     }
 }
@@ -149,7 +151,7 @@ class Component(object):
 
     defaultControl = ControlCurve()
 
-    def __init__(self, name='default', deformTargets=[], mainControlType='circle',
+    def __init__(self, name='default', target=None, mainControlType='circle',
                  mainControlColor=dt.Color.blue, mainControlScale=10.0,
                  aimAxis=dt.Vector(1,0,0), rig=None, parentSpace=None,
                  uprightSpace=None, **kwargs):
@@ -164,7 +166,8 @@ class Component(object):
         self._parentSpace = parentSpace
         self._mainControl = None
 
-        self._deformTargets = [pmc.PyNode(target) for target in deformTargets]
+        if target:
+            self._target = pmc.PyNode(target)
 
         self._mainControlType = ControlCurve(curveType=mainControlType,
                                              scale=mainControlScale,
@@ -208,7 +211,10 @@ class Component(object):
 
     def zero(self):
         # Sets the default localspacebuffer position
-        pass
+        try:
+            self.localSpaceBuffer.setMatrix(self._target.getMatrix(worldSpace=True), worldSpace=True)
+        except AttributeError:
+            pass
 
     def snap(self):
         # Snap controls to the positions of the deform targets
@@ -219,21 +225,10 @@ class Component(object):
         pmc.setKeyframe(self.mainControl, t=frame)
 
     def bakeDeforms(self, frame):
-
-        # Key every deform target
-        for joint in self._deformTargets:
-            pmc.setKeyframe(joint, t=frame)
+        pass
 
     def bind(self):
-        if not self._bound:
-
-            # Apply a parent constraint to each deform target
-            for joint in self._deformTargets:
-
-                self._constraints.append(pmc.parentConstraint(self._mainControl, joint, mo=True))
-                self._constraints.append(pmc.scaleConstraint(self._mainControl, joint))
-
-            self._bound = True
+        self._bound = True
 
     def unbind(self):
 
@@ -366,8 +361,8 @@ class Component(object):
 
             multMatrix = pmc.createNode('multMatrix', name=self.name + '_parentMult_' + str(index+1))
             self._utilityNodes['parentSpaceMult_' + str(index+1)] = multMatrix
-            pmc.setAttr(multMatrix.matrixIn[0], self._deformTargets[0].getMatrix(worldSpace=True))
-            pmc.setAttr(multMatrix.matrixIn[1], parentComponent._deformTargets[0].getMatrix(worldSpace=True).inverse())
+            pmc.setAttr(multMatrix.matrixIn[0], self.target.getMatrix(worldSpace=True))
+            pmc.setAttr(multMatrix.matrixIn[1], parentComponent.target.getMatrix(worldSpace=True).inverse())
             pmc.connectAttr(parentComponent.mainControl.worldMatrix[0], multMatrix.matrixIn[2])
             pmc.connectAttr(multMatrix.matrixSum, parentSpaceChoiceNode.input[index+1])
         for index in range(len(comNames)):
@@ -375,8 +370,8 @@ class Component(object):
                                if value.name == comNames[index]][0]
             multMatrix = pmc.createNode('multMatrix', name=self.name + '_uprightMult_' + str(index+1))
             self._utilityNodes['uprightSpaceMult_' + str(index+1)] = multMatrix
-            pmc.setAttr(multMatrix.matrixIn[0], self._deformTargets[0].getMatrix(worldSpace=True))
-            pmc.setAttr(multMatrix.matrixIn[1], parentComponent._deformTargets[0].getMatrix(worldSpace=True).inverse())
+            pmc.setAttr(multMatrix.matrixIn[0], self.target.getMatrix(worldSpace=True))
+            pmc.setAttr(multMatrix.matrixIn[1], parentComponent.target.getMatrix(worldSpace=True).inverse())
             pmc.connectAttr(parentComponent.mainControl.worldMatrix[0], multMatrix.matrixIn[2])
             pmc.connectAttr(multMatrix.matrixSum, uprightSpaceChoiceNode.input[index+1])
 
@@ -430,7 +425,7 @@ class Component(object):
 
         arguments['name'] = self.name
         arguments['componentType'] = None
-        arguments['deformTargets'] = [str(target) for target in self._deformTargets]
+        arguments['target'] = str(self.target)
         arguments['controlTypes'] = self._mainControlType.curveType
         arguments['aimAxis'] = [axis for axis in self._aimAxis]
         arguments['parentSpace'] = getName(self.parentSpace)
@@ -457,8 +452,6 @@ class Component(object):
         data.append('Main Control Shape: ' + self._mainControlType.curveType)
         data.append('Aim Axis: ' + str(self._aimAxis))
         data.append('Deform Targets:')
-        for target in self._deformTargets:
-            data.append("   - " + str(target))
 
         data.append('')
 
@@ -505,17 +498,11 @@ class Component(object):
 
     @property
     def ready(self):
-        # This property determines whether the component can be built
-        # with its current values
-        # A value of None is considered ready
+        return None
 
-        error = None
-
-        if len(self._deformTargets) < 1:
-            error = 'Requires at least one deform target.'
-
-        return error
-
+    @property
+    def target(self):
+        return self._target
 
 class Rig(object):
     '''
@@ -554,7 +541,7 @@ class Rig(object):
             if com['enabled']:
 
                 # Create an instance of the component's class
-                component = self._createComponent(**com)
+                component = self._createComponent(componentType=com['type'],**com)
 
                 # Add the component to this rigs active component dictionary
                 self._components[id] = component
@@ -767,7 +754,7 @@ class Rig(object):
         for id, com in self._componentData.iteritems():
 
             # Create an instance of the component's class
-            component = self._createComponent(**com)
+            component = self._createComponent(componentType=com['type'], **com)
 
             # Check if component is set to 'enabled'
             if component.ready is not None:
@@ -786,8 +773,11 @@ class JointComponent(Component):
     Represents a component that specifically deforms joints
     '''
 
-    def __init__(self, aimAxis=dt.Vector(1,0,0), **kwargs):
+    def __init__(self, aimAxis=dt.Vector(1,0,0), deformTargets=[], target=None, **kwargs):
         Component.__init__(self, aimAxis=aimAxis, **kwargs)
+
+        self._deformTargets = [pmc.PyNode(target) for target in deformTargets]
+
         self._startJoint = None
         self._endJoint = None
 
@@ -890,6 +880,10 @@ class JointComponent(Component):
 
             self._bound = True
 
+    def bakeDeforms(self, frame):
+        # Key every deform target
+        for joint in self._deformTargets:
+            pmc.setKeyframe(joint, t=frame)
 
     #### public properties ####
 
@@ -906,6 +900,47 @@ class JointComponent(Component):
             self._endJoint = self._getEndJoint()
 
         return  self._endJoint
+
+    @property
+    def ready(self):
+        # This property determines whether the component can be built
+        # with its current values
+        # A value of None is considered ready
+
+        error = None
+
+        if len(self._deformTargets) < 1:
+            error = 'Requires at least one deform target.'
+
+        return error
+
+    @property
+    def target(self):
+        return self.startJoint
+
+    @property
+    def data(self):
+
+        def getName(target):
+            try:
+                return str(target.name)
+            except AttributeError:
+                return 'None'
+
+        arguments = {}
+
+        arguments['name'] = self.name
+        arguments['componentType'] = None
+        arguments['target'] = str(self.target)
+        arguments['deformTargets'] = [str(target) for target in self._deformTargets]
+        arguments['controlTypes'] = self._mainControlType.curveType
+        arguments['aimAxis'] = [axis for axis in self._aimAxis]
+        arguments['parentSpace'] = getName(self.parentSpace)
+        arguments['uprightSpace'] = getName(self.uprightSpace)
+        arguments['type'] = self.__class__.__name__
+
+        return arguments
+
 
 
 class StretchJointComponent(JointComponent):
@@ -1149,7 +1184,7 @@ class IKComponent(StretchJointComponent):
     A basic IK control
     '''
 
-    def __init__(self, noFlipKnee=False, poleControlCurveType=defaultPoleControl, **kwargs):
+    def __init__(self, noFlipKnee=False, poleControlCurveType='triangle', **kwargs):
         StretchJointComponent.__init__(self, stretchMin=1.0, **kwargs)
         self._noFlipKnee = noFlipKnee
         self._poleControlCurveType = poleControlCurveType
@@ -1210,7 +1245,7 @@ class IKComponent(StretchJointComponent):
             # Create empty transform and move it to the pole point
             poleObject = pmc.group(empty=True, name=self.name + '_poleVector_point')
             poleObject.setTranslation(polePoint, space='world')
-            poleCurve = self._poleControlCurveType.create()
+            poleCurve = ControlCurve(curveType=self._poleControlCurveType).create()
             pmc.rename(poleCurve, self.name + '_poleVector_ctrl')
             poleCurve.setMatrix(poleObject.getMatrix())
             pmc.parent(poleObject, poleCurve)
@@ -1327,6 +1362,10 @@ class IKComponent(StretchJointComponent):
             error = 'Requires at least three deform targets'
 
         return error
+
+    @property
+    def target(self):
+        return self.endJoint
 
 
 class MultiFKComponent(FKComponent):

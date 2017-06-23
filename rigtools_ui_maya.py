@@ -69,12 +69,14 @@ class ModelController(ui.ViewController):
         logger.info('Model Controller: Add Selected signal received. Value: ' + id)
 
         selected = pmc.selected()
-        print selected
         nameData = [target.name() for target in selected]
-        print nameData
         oldData = self.componentData[id]
-        oldData['deformTargets'].extend(nameData)
-        print oldData
+
+        try:
+            oldData['deformTargets'].extend(nameData)
+        except KeyError:
+            oldData['target'] = nameData[0]
+
         self.setComponentValue(id, oldData)
 
         self._refreshView()

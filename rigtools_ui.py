@@ -1092,6 +1092,72 @@ class ComponentArgumentWidget(QtCore.QObject):
     def value(self, value):
         pass
 
+class QTarget(QtWidgets.QWidget, ComponentArgumentWidget):
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
+        QtWidgets.QWidget.__init__(self, parent)
+
+        self.parent = parent
+
+        self.setMaximumHeight(75)
+
+        # Create a layout to contain sub widgets
+        self.layout = QtWidgets.QVBoxLayout()
+        self.setLayout(self.layout)
+
+        # Create a list widget to hold deform targets
+        self.list = QtWidgets.QListWidget(self)
+        self.list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.layout.addWidget(self.list)
+
+        # Create a layout for the buttons
+        buttonLayout = QtWidgets.QHBoxLayout()
+        self.layout.addLayout(buttonLayout)
+
+        # Create an add button
+        addButton = QtWidgets.QPushButton('+', self)
+        buttonLayout.addWidget(addButton)
+        addButton.clicked.connect(self.addButtonClicked)
+
+        # Create a remove button
+        removeButton = QtWidgets.QPushButton('-', self)
+        buttonLayout.addWidget(removeButton)
+        removeButton.clicked.connect(self.removeButtonClicked)
+
+    @property
+    def value(self):
+        # Return values of list widget in an array
+        if self.list.item(0):
+            return self.list.item(0).text()
+        else:
+            return None
+
+    @value.setter
+    def value(self, value):
+        # Clear the list widget
+        self.list.clear()
+
+        # Add each value into the list
+        self.list.addItem(value)
+
+    @Slot()
+    def addButtonClicked(self):
+        logger.debug('Add button clicked')
+        if self.list.count() < 1:
+            self.parent.onAddSelectedClicked.emit()
+
+    @Slot()
+    def removeButtonClicked(self):
+
+        logger.debug('Remove button clicked for ' + self.parent.name)
+
+        # Remove the selected items from the list
+        items = self.list.selectedItems()
+        for item in items:
+            self.list.takeItem(self.list.row(item))
+
+        # Update the rig
+        self.onValueChanged.emit()
+
 class QTargetList(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
         QtWidgets.QWidget.__init__(self, parent)
@@ -1398,7 +1464,9 @@ COMPONENT_SETTINGS = {
     'uprightSpace': QRigComponentComboBox,
     'stretchEnabled': QBoolWidget,
     'squashEnabled': QBoolWidget,
-    'noFlipKnee': QBoolWidget
+    'noFlipKnee': QBoolWidget,
+    'poleControlCurveType': QControlComboBox,
+    'target': QTarget
 }
 
 COMPONENT_SETTINGS_DEBUG = {
@@ -1415,7 +1483,7 @@ COMPONENT_TYPES = {
         'type': 'Component',
         'mainControlType': 'default',
         'mainControlScale': 10.0,
-        'deformTargets': [],
+        'target': None,
         'aimAxis': [0,1,0],
         'parentSpace': None,
         'uprightSpace': None,
@@ -1426,6 +1494,7 @@ COMPONENT_TYPES = {
         'type': 'FKComponent',
         'mainControlType': 'default',
         'mainControlScale': 10.0,
+        'target': None,
         'deformTargets': [],
         'aimAxis': [1,0,0],
         'parentSpace': None,
@@ -1439,6 +1508,7 @@ COMPONENT_TYPES = {
         'type': 'IKComponent',
         'mainControlType': 'cube',
         'mainControlScale': 10.0,
+        'target': None,
         'deformTargets': [],
         'aimAxis': [1,0,0],
         'parentSpace': None,
