@@ -1459,6 +1459,8 @@ COMPONENT_SETTINGS = {
     'deformTargets': QTargetList,
     'mainControlType': QControlComboBox,
     'mainControlScale': QScalarWidget,
+    'childControlType': QControlComboBox,
+    'childControlScale': QScalarWidget,
     'aimAxis': QAxisWidget,
     'parentSpace': QRigComponentComboBox,
     'uprightSpace': QRigComponentComboBox,
@@ -1466,7 +1468,8 @@ COMPONENT_SETTINGS = {
     'squashEnabled': QBoolWidget,
     'noFlipKnee': QBoolWidget,
     'poleControlCurveType': QControlComboBox,
-    'target': QTarget
+    'target': QTarget,
+    'spaceSwitchEnabled': QBoolWidget
 }
 
 COMPONENT_SETTINGS_DEBUG = {
@@ -1477,7 +1480,7 @@ COMPONENT_SETTINGS_DEBUG = {
     'enabled': QReadOnlyBoolWidget
 }
 
-COMPONENT_TYPES = {
+TEST_COMPONENT_TYPES = {
     'Component': {
         'name': 'defaultComponent',
         'type': 'Component',
@@ -1516,7 +1519,23 @@ COMPONENT_TYPES = {
         'stretchEnabled': False,
         'squashEnabled': False,
         'icon': ":/ikHandle.svg"
-    }
+    },
+    'MultiFKComponent': {
+            'name': 'defaultMultiFKComponent',
+            'type': 'MultiFKComponent',
+            'mainControlType': 'square',
+            'mainControlScale': 20.0,
+            'childControlType': 'default',
+            'childControlScale': 10.0,
+            'deformTargets': [],
+            'aimAxis': [1,0,0],
+            'parentSpace': None,
+            'uprightSpace': None,
+            'stretchEnabled': False,
+            'squashEnabled': False,
+            'icon': ":/ikHandle.svg",
+            'enabled': True
+        }
 }
 
 CONTROL_TYPES = [
@@ -1596,7 +1615,7 @@ def _test():
     mainWindow = MainComponentWindow()
 
     # Create the ui controller
-    controller = TestViewController(mainWindow, TEST_COMPONENT_DATA, CONTROL_TYPES, COMPONENT_TYPES)
+    controller = TestViewController(mainWindow, TEST_COMPONENT_DATA, CONTROL_TYPES, TEST_COMPONENT_TYPES)
 
     controller.loadRig('test')
 
