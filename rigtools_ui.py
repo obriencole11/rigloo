@@ -1468,8 +1468,10 @@ COMPONENT_SETTINGS = {
     'squashEnabled': QBoolWidget,
     'noFlipKnee': QBoolWidget,
     'poleControlCurveType': QControlComboBox,
+    'fkOffsetCurveType': QControlComboBox,
     'target': QTarget,
-    'spaceSwitchEnabled': QBoolWidget
+    'spaceSwitchEnabled': QBoolWidget,
+    'isLeafJoint': QBoolWidget
 }
 
 COMPONENT_SETTINGS_DEBUG = {
