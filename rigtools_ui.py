@@ -1471,7 +1471,10 @@ COMPONENT_SETTINGS = {
     'fkOffsetCurveType': QControlComboBox,
     'target': QTarget,
     'spaceSwitchEnabled': QBoolWidget,
-    'isLeafJoint': QBoolWidget
+    'isLeafJoint': QBoolWidget,
+    'aimControlType': QControlComboBox,
+    'aimVector': QAxisWidget,
+    'aimCurveDistance': QScalarWidget
 }
 
 COMPONENT_SETTINGS_DEBUG = {
