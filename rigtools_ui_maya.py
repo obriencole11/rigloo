@@ -34,8 +34,10 @@ class ModelController(ui.ViewController):
     def __init__(self, *args, **kwargs):
         ui.ViewController.__init__(self, *args, **kwargs)
 
-        self._currentRig = None
-
+        try:
+            self._currentRig = self._model.activeRigs[0]
+        except IndexError:
+            self._currentRig = None
 
     ##### View Slots #####
 
@@ -116,7 +118,6 @@ class ModelController(ui.ViewController):
         self.onNewRig.emit()
         self._refreshView()
 
-
     @Slot()
     def buildRig(self):
         # If the model is not built, build it, otherwise remove it
@@ -132,7 +133,6 @@ class ModelController(ui.ViewController):
             self.onBuiltStateChange.emit(self.built)
         else:
             self._showError(error)
-
 
     @Slot()
     def bakeRig(self):
@@ -161,6 +161,11 @@ class ModelController(ui.ViewController):
 
         self.onBoundStateChange.emit(self.bound)
 
+    @Slot(str)
+    def switchActiveRig(self, rigName):
+        # This will tell the model to switch the active rig
+        self._currentRig = rigName
+        self._refreshView()
 
     #### Private Methods ####
 
@@ -168,7 +173,8 @@ class ModelController(ui.ViewController):
         # Update the view's componentData
         # Tell the view to regenerate components
         self.onRefreshComponents.emit(self.componentData, self.componentTypeData,
-                                      self.controlTypeData, self.componentSettings)
+                                      self.controlTypeData, self.componentSettings,
+                                      self._model.activeRigs, self._currentRig)
 
 
     ##### private properties #####
@@ -227,8 +233,6 @@ def show():
 
         # Create the window
         mainWindow = ui.MayaComponentWindow(mayaWindow)
-        #mainWindow = MyWindow(mayaWindow)
-        #mayaWindow.addDockWidget(QtCore.Qt.LeftDockWidgetArea, mainWindow)
 
         # Create the data
         data = rigtools.RigToolsData()

@@ -29,7 +29,7 @@ stream_handler.setLevel(logging.DEBUG)
 class BaseController(QtCore.QObject):
 
     # A signal to tell the ui to regenerate its components
-    onRefreshComponents = Signal(dict, list, list, dict)
+    onRefreshComponents = Signal(dict, list, list, dict, list, str)
 
     # Signals to let the view and its widgets know type data was updated
     # The dict is the updated type data
@@ -43,6 +43,9 @@ class BaseController(QtCore.QObject):
 
     # Signal to update the view when a new rig is created
     onNewRig = Signal()
+
+    # A Signal to update the view when a new active rig is added
+    onActiveRigsUpdated = Signal(list)
 
     def __init__(self, window=None, model=None):
         QtCore.QObject.__init__(self)
@@ -134,6 +137,11 @@ class BaseController(QtCore.QObject):
         # Otherwise refresh with just the default
         raise NotImplementedError
 
+    @Slot(str)
+    def switchActiveRig(self, rigName):
+         # This will tell the model to switch the active rig
+        raise NotImplementedError
+
     #### Private Methods ####
 
     def _refreshView(self):
@@ -205,6 +213,7 @@ class ViewController(BaseController):
         self._window.onBindRigClicked.connect(self.bindRig)
         self._window.onDebugToggled.connect(self.toggleDebug)
         self._window.onRemoveComponentClicked.connect(self.removeComponent)
+        self._window.onRigSwitched.connect(self.switchActiveRig)
 
         # Create a private variable to store the current component settings
         self._componentSettings = dict(COMPONENT_SETTINGS)
@@ -255,6 +264,7 @@ class TestViewController(ViewController):
         self.rigs = {}
         self.rigs[self.activeRig] = componentData
 
+
     #### Private Methods ####
 
     def _refreshView(self):
@@ -263,7 +273,8 @@ class TestViewController(ViewController):
         self.onRefreshComponents.emit(self._componentData,
                                       self._componentTypeData,
                                       self._controlTypeData,
-                                      self.componentSettings)
+                                      self.componentSettings,
+                                      self.rigs)
 
     ##### View Slots #####
 
@@ -420,6 +431,11 @@ class TestViewController(ViewController):
         self._bound = not self.bound
         self.onBoundStateChange.emit(self.bound)
 
+    @Slot(str)
+    def switchActiveRig(self, rigName):
+        # This will tell the model to switch the active rig
+        raise NotImplementedError
+
     ##### private properties #####
 
     @property
@@ -487,6 +503,9 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     # A signal to let the control know a component was updated
     # The string is the id of the component, the dict is the componentData
     onComponentDataUpdated = Signal(str, dict)
+
+    # A signal to let the control know a new rig was selected
+    onRigSwitched = Signal(str)
 
     # Widget Signals
     # These are sent to slots in widget this window creates
@@ -576,6 +595,9 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # Set the main widget as the center widget
         self.setCentralWidget(self.main_widget)
 
+        # Add the rig selector widget
+        self._addRigSelector()
+
     def _showComponentDataWidget(self):
 
         # Create a new main widget
@@ -621,6 +643,22 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.refreshButton, 2, 1)
         self.refreshButton.clicked.connect(self.onRefreshRigClicked)
 
+    def _addRigSelector(self):
+
+        # Create a formlayout for the selector
+        selectorLayout = QtWidgets.QFormLayout()
+        self.main_layout.addLayout(selectorLayout)
+
+        # Create a combobox to hold the active rigs
+        self.rigComboBox = QtWidgets.QComboBox(self.main_widget)
+        selectorLayout.addRow('Rig:', self.rigComboBox)
+
+        # Connect the combobox to the rig switch signal
+        self.rigComboBox.activated.connect(self.onRigSwitched)
+
+    def _onRigSwitched(self):
+        self.onRigSwitched.emit(self.rigComboBox.currentText())
+
     def _addScrollWidget(self):
 
         logger.debug('Adding the scroll widget')
@@ -642,12 +680,26 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         line.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         return line
 
+    # This is called by the controller to update the rig selector
+    def _refreshActiveRigs(self, rigNames, activeRigName):
+
+        # Clear the combobox
+        self.rigComboBox.clear()
+
+        # Add rigs to the combobox
+        self.rigComboBox.addItems(rigNames)
+
+        self.rigComboBox.setCurrentIndex(rigNames.index(activeRigName))
+
     ##### Controller Slots #####
 
-    @Slot(dict, list, list)
+    @Slot(dict, list, list, dict, list, str)
     # The controller calls this to regenerate the component ui
     # The dict is an updated version of the component Data
-    def refreshComponentWidgets(self, componentData, componentTypeData, controlTypeData, componentSettings):
+    def refreshComponentWidgets(self, componentData, componentTypeData, controlTypeData, componentSettings,
+                                activeRigs, activeRig):
+
+        self._refreshActiveRigs(activeRigs, activeRig)
 
         self.updateAddComponentMenus(componentTypeData)
 
@@ -715,6 +767,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         self.scrollWidget.setWidget(self.componentWidget)
 
         self.scrollWidget.verticalScrollBar().setValue(scrollValue)
+
 
     @Slot(list)
     def updateControlTypeData(self, controlTypeData):
@@ -808,7 +861,6 @@ class MayaComponentWindow(MayaQWidgetDockableMixin, MainComponentWindow):
 ##############################
 #      Component Widget      #
 ##############################
-
 
 class ComponentWidget(QtWidgets.QWidget):
     '''
@@ -1070,7 +1122,6 @@ class ComponentWidget(QtWidgets.QWidget):
     @Slot()
     def onRemoveComponent(self):
         self.onRemoveComponentClicked.emit(self.id)
-
 
 ##############################
 #      Argument Widgets      #

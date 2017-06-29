@@ -24,6 +24,18 @@ COMPONENT_TYPES = {
         'enabled': True,
         'spaceSwitchEnabled': False
     },
+    'ScaleComponent': {
+            'name': 'defaultScaleComponent',
+            'type': 'ScaleComponent',
+            'mainControlType': 'default',
+            'mainControlScale': 10.0,
+            'target': None,
+            'parentSpace': None,
+            'uprightSpace': None,
+            'icon': ":/holder.svg",
+            'enabled': True,
+            'spaceSwitchEnabled': False
+        },
     'FKComponent': {
         'name': 'defaultFKComponent',
         'type': 'FKComponent',
@@ -255,8 +267,7 @@ class BasicComponent(object):
     defaultControl = ControlCurve()
 
     def __init__(self, name='default', target=None, mainControlType='circle', parentSpace=None, uprightSpace=None,
-                 mainControlColor=dt.Color.blue, mainControlScale=10.0, spaceSwitchEnabled=False,
-                 orientToTarget=False, **kwargs):
+                 mainControlColor=dt.Color.blue, mainControlScale=10.0, spaceSwitchEnabled=False, utilityNodes=None, **kwargs):
 
         # Set the standard variables
         self._name = name
@@ -286,6 +297,10 @@ class BasicComponent(object):
         self._mainControlType = ControlCurve(curveType=mainControlType,
                                              scale=mainControlScale,
                                              color=mainControlColor)
+
+        # Grab references to any existing utility nodes
+        if utilityNodes:
+            self._utilityNodes = {name: pmc.PyNode(node) for name, node in utilityNodes}
 
     #### Public Methods ####
 
@@ -443,15 +458,24 @@ class BasicComponent(object):
     def zero(self):
         '''
         Sets the localSpaceBuffers position based on the target.
+        If there is no target, set it to the identity matrix
         '''
 
-        self.localSpaceBuffer.setMatrix(self.target.getMatrix(worldSpace=True), worldSpace=True)
+        try:
+            self.localSpaceBuffer.setMatrix(self.target.getMatrix(worldSpace=True), worldSpace=True)
+        except AttributeError:
+            self.localSpaceBuffer.setMatrix(dt.Matrix(), worldSpace=True)
 
     def snap(self):
         '''
         Snap controls to the position of the target
         '''
-        targetM = self.target.getMatrix(worldSpace=True)
+
+        try:
+            targetM = self.target.getMatrix(worldSpace=True)
+        except AttributeError:
+            targetM = dt.Matrix()
+
         self._mainControl.setMatrix(targetM, worldSpace=True)
 
     def bake(self, frame):
@@ -579,6 +603,7 @@ class BasicComponent(object):
         arguments['parentSpace'] = getName(self.parentSpace)
         arguments['uprightSpace'] = getName(self.uprightSpace)
         arguments['type'] = self.__class__.__name__
+        arguments['utilityNodes'] = {name: node.name() for name, node in self._utilityNodes.iteritems()}
 
         return arguments
 
@@ -654,7 +679,7 @@ class Rig(object):
     An object for building components from a set of component data.
     '''
 
-    def __init__(self, name, componentData, directory):
+    def __init__(self, name, componentData, directory, built=False, bound=False, baked=False, rigGroup=None):
 
         # Assign a name, this is mostly for display purposes
         self._name = name
@@ -669,9 +694,25 @@ class Rig(object):
         self._components = {}
 
         # Some simple state bools
-        self._bound = False
-        self._built = False
-        self._baked = False
+        self._bound = bound
+        self._built = built
+        self._baked = baked
+
+        # If this rig has been built, grab its riggroup
+        if rigGroup:
+            self.rigGroup = pmc.PyNode(rigGroup)
+
+        # If built, fill the active component list
+        if self._built:
+            # For each component in the component data...
+            for id, com in self._componentData.iteritems():
+                # Check if component is set to 'enabled'
+                if com['enabled']:
+                    # Create an instance of the component's class
+                    component = self._createComponent(componentType=com['type'], **com)
+
+                    # Add the component to this rigs active component dictionary
+                    self._components[id] = component
 
     #### Public Methods ####
 
@@ -901,12 +942,32 @@ class Rig(object):
 
         return component
 
-
     #### Public Properties ####
 
     @property
     def componentData(self):
         return self._componentData
+
+    @property
+    def data(self):
+        ''' Return data that can be used to recreate this rig '''
+
+        try:
+            rigGroup = self.rigGroup.name()
+        except AttributeError:
+            rigGroup = None
+
+        rigData = {
+            'name': self._name,
+            'directory': self._directory,
+            'componentData': self._componentData,
+            'built': self._built,
+            'bound': self._bound,
+            'baked': self._baked,
+            'rigGroup': rigGroup
+        }
+
+        return rigData
 
     @property
     def directory(self):
@@ -1313,6 +1374,7 @@ class FKComponent(BasicComponent):
         arguments['parentSpace'] = getName(self.parentSpace)
         arguments['uprightSpace'] = getName(self.uprightSpace)
         arguments['type'] = self.__class__.__name__
+        arguments['utilityNodes'] = {name: node.name() for name, node in self._utilityNodes.iteritems()}
 
         return arguments
 
@@ -1740,7 +1802,7 @@ class IKComponent(MultiFKComponent):
         for index in range(len(self._deformTargets)):
             joint = self._deformTargets[index]
             duplicate = pmc.duplicate(joint, po=True, name=joint.name() + '_ikchain')[0]
-            pmc.hide(duplicate )
+            pmc.hide(duplicate)
             self.ikChain.append(duplicate)
 
             # Parent the duplicates
@@ -1775,6 +1837,10 @@ class IKComponent(MultiFKComponent):
         if self._squashEnabled or self._stretchEnabled:
 
             # Create the nodes needed
+            point1SpaceSwitch = pmc.createNode('multMatrix', name=self.name + '_point1_SpaceSwitch')
+            point2SpaceSwitch = pmc.createNode('multMatrix', name=self.name + '_point2_SpaceSwitch')
+            scaleCompose = pmc.createNode('composeMatrix', name=self.name+'_scaleCompose')
+            scaleInverse = pmc.createNode('inverseMatrix', name=self.name+'_scaleInverse')
             ikChainLength = pmc.createNode('distanceBetween', name=self.name + '_ikChainDistance')
             lengthNormalize = pmc.createNode('floatMath', name=self.name + '_lengthNormalize')
             pmc.setAttr(lengthNormalize.operation, 3)
@@ -1783,16 +1849,35 @@ class IKComponent(MultiFKComponent):
             self._utilityNodes['ikChainLength'] = ikChainLength
             self._utilityNodes['lengthNormalize'] = lengthNormalize
             self._utilityNodes['outputMax'] = outputMax
+            self._utilityNodes['point1SpaceSwitch'] = point1SpaceSwitch
+            self._utilityNodes['point2SpaceSwitch'] = point2SpaceSwitch
 
-            pmc.connectAttr(self.baseComponent.matrixOutput.worldMatrix[0], ikChainLength.inMatrix1)
-            pmc.connectAttr(self.ikComponent.matrixOutput.worldMatrix[0], ikChainLength.inMatrix2)
+            # Grab the inverse of the ik components parent
+            # This removes global scale from the distance calculation
+            pmc.connectAttr(self.ikComponent.parentSpaceBuffer.scale, scaleCompose.inputScale)
+            pmc.connectAttr(scaleCompose.outputMatrix, scaleInverse.inputMatrix)
 
+            # Connect the inverse scale to a spaceswitch for the basecomponent
+            pmc.connectAttr(self.baseComponent.matrixOutput.worldMatrix[0], point1SpaceSwitch.matrixIn[0])
+            pmc.connectAttr(scaleInverse.outputMatrix, point1SpaceSwitch.matrixIn[1])
+
+            # Do the same for the ik component
+            pmc.connectAttr(self.ikComponent.matrixOutput.worldMatrix[0], point2SpaceSwitch.matrixIn[0])
+            pmc.connectAttr(scaleInverse.outputMatrix, point2SpaceSwitch.matrixIn[1])
+
+            # Connect the outputs to the distance node
+            pmc.connectAttr(point1SpaceSwitch.matrixSum, ikChainLength.inMatrix1)
+            pmc.connectAttr(point2SpaceSwitch.matrixSum, ikChainLength.inMatrix2)
+
+            # Connect the distance to a node that will normalize the value (divide by the start distance)
             pmc.connectAttr(ikChainLength.distance, lengthNormalize.floatA)
             pmc.setAttr(lengthNormalize.floatB, pmc.getAttr(ikChainLength.distance))
 
+            # Connect that to a max node, since we only want the component to stretch further than the start
             pmc.connectAttr(lengthNormalize.outFloat, outputMax.floatA)
             pmc.setAttr(outputMax.floatB, 1.0)
 
+            # Hook up the ik chain scale
             pmc.connectAttr(outputMax.outFloat, self.ikChain[0].scaleX)
             pmc.connectAttr(outputMax.outFloat, self.ikChain[1].scaleX)
 
@@ -1925,6 +2010,10 @@ class SpineIKComponent(MultiFKComponent):
         # Create a list to hold spineSpaces
         self._spineSpaces = []
 
+        # Create a group to contain the spaces
+        referenceGroup = pmc.group(empty=True, name='reference')
+        pmc.parent(referenceGroup, self._componentGroup)
+
         # Build the middle spine spaces
         for index in self.middleIndex:
 
@@ -1934,9 +2023,7 @@ class SpineIKComponent(MultiFKComponent):
             space.matrixOutput.setMatrix(self._childComponents[index].matrixOutput.getMatrix(worldSpace=True), worldSpace=True)
             self._spineSpaces.append(space)
 
-            # Create a group to contain the spaces
-            referenceGroup = pmc.group(empty=True, name='reference')
-            pmc.parent(referenceGroup, self._componentGroup)
+            # Parent the space to the reference group
             pmc.parent(spaceGroup, referenceGroup)
 
             # Create two empty objects, one for the start, and one for the end
@@ -1948,6 +2035,12 @@ class SpineIKComponent(MultiFKComponent):
             pmc.parent(startLocator, self.baseComponent.matrixOutput)
             endLocator.setMatrix(self._childComponents[index].matrixOutput.getMatrix(worldSpace=True), worldSpace=True)
             pmc.parent(endLocator, self.endComponent.matrixOutput)
+
+            # Create a decompose matrix to grab the base components scale
+            scaleDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_scaleDecomp'+str(index))
+            self._utilityNodes['scaleDecompose_'+str(index)] = scaleDecompose
+            pmc.connectAttr(self.baseComponent.matrixOutput.worldMatrix[0], scaleDecompose.inputMatrix)
+            pmc.connectAttr(scaleDecompose.outputScale, space.matrixOutput.scale)
 
             # Create a decompose matrix for each locator, to extract the worldspacematrix
             startDecompose = pmc.createNode('decomposeMatrix', name=self.name + '_startlocatorDecomp_' + str(index))
@@ -2209,9 +2302,37 @@ class AimComponent(FKComponent):
 
         pmc.setKeyframe(self._aimComponent.matrixOutput, t=frame)
 
-
 class ScaleComponent(BasicComponent):
-    pass
+    '''
+    A basic component that scales its target
+    '''
+
+    def __init__(self, **kwargs):
+        BasicComponent.__init__(self, **kwargs)
+
+    def bind(self):
+
+        pmc.connectAttr(self.matrixOutput.scale, self._target.scale)
+
+        self._bound = True
+
+    def unbind(self):
+
+        if self._bound:
+
+            pmc.disconnectAttr(self._target.scale)
+
+            # Mark this component as inactive
+            self.bound = False
+
+    @property
+    def ready(self):
+        error = None
+
+        if self._target is None:
+            error = 'Needs at least one target'
+
+        return  error
 
 ##############################
 #       Model Classes        #
@@ -2246,10 +2367,33 @@ class RigToolsModel(object):
     def __init__(self, data):
 
         # Set up initial variables
-        self._activeRigs = {}
+        self._activeRigs = self._loadFromScene()
 
         # Grab the data handler
         self._data = data
+
+    ##### Private Methods #####
+
+    def _loadFromScene(self):
+
+        try:
+            rigData = eval(pmc.fileInfo['rigs'])
+            print rigData
+            rigs = {rigName: Rig(rigName, rigData['componentData'], rigData['directory'],
+                                 built=rigData['built'], baked=rigData['baked'], bound=rigData['bound'],
+                                 rigGroup=rigData['rigGroup'])
+                                for rigName, rigData in rigData.iteritems()}
+
+        except KeyError:
+            rigs = {}
+
+        return rigs
+
+
+    def _saveToScene(self):
+        pmc.fileInfo['rigs'] = repr(self.data)
+
+    ##### Public Methods #####
 
     def createRig(self):
 
@@ -2288,6 +2432,9 @@ class RigToolsModel(object):
             # Rebuild the rig
             self._activeRigs[rigName].build()
 
+            # Save the data to the scene
+            self._saveToScene()
+
     def bindRig(self, rigName):
 
         with safeCreate(self._activeRigs[rigName]):
@@ -2296,6 +2443,9 @@ class RigToolsModel(object):
 
             # Build and bind the rig
             self._activeRigs[rigName].bind()
+
+            # Save the data to the scene
+            self._saveToScene()
 
     def bakeRig(self, rigName):
 
@@ -2308,6 +2458,9 @@ class RigToolsModel(object):
             self._activeRigs[rigName].bake(frameRange=frameRange)
             self._activeRigs[rigName].bind()
 
+            # Save the data to the scene
+            self._saveToScene()
+
     def bakeDeforms(self, rigName):
 
         with safeCreate(self._activeRigs[rigName]):
@@ -2315,10 +2468,16 @@ class RigToolsModel(object):
             self._activeRigs[rigName].bakeDeforms(frameRange=frameRange)
             self._activeRigs[rigName].remove()
 
+            # Save the data to the scene
+            self._saveToScene()
+
     def unbindRig(self, rigName):
 
         with safeCreate(self._activeRigs[rigName]):
             self._activeRigs[rigName].unbind()
+
+            # Save the data to the scene
+            self._saveToScene()
 
     def refreshRig(self, rigName):
 
@@ -2335,10 +2494,16 @@ class RigToolsModel(object):
         if bound:
             self._activeRigs[rigName].bound()
 
+        # Save the data to the scene
+        self._saveToScene()
+
     def removeRig(self, rigName):
 
         # Remove the rig
         self._activeRigs[rigName].remove()
+
+        # Save the data to the scene
+        self._saveToScene()
 
     def saveRig(self, rigName):
         self._data.save(self._activeRigs[rigName].directory, self._activeRigs[rigName].componentData)
@@ -2360,8 +2525,8 @@ class RigToolsModel(object):
         '''
         Adds a component to the rig based on a string for rig name and componentType
         '''
-
-        return self._activeRigs[rigName].addComponent(**COMPONENT_TYPES[type])
+        id = self._activeRigs[rigName].addComponent(**COMPONENT_TYPES[type])
+        return id
 
     def removeComponent(self, rigName, id):
 
@@ -2386,6 +2551,16 @@ class RigToolsModel(object):
 
     def isBaked(self, rigName):
         return self._activeRigs[rigName].baked
+
+    @property
+    def data(self):
+        '''Return each active rig with instructions on how to replicate them'''
+        return {rigName: rig.data for rigName, rig in self._activeRigs.iteritems()}
+
+    @property
+    def activeRigs(self):
+        ''' Return active rigs as a list'''
+        return [name for name, rig in self._activeRigs.iteritems()]
 
 
 ##############################
