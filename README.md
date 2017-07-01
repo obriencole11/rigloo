@@ -1,13 +1,52 @@
-![Fossile Logo](icons/icon-logo.png)
-# Fossil
+<img src="icons/icon-logo.png" width="128" height="128" />
+<h1> Fossil <h1>
 
 ### Fossil is a Component-Based autorigger for Maya
 
-Fossil was built with the goal of creating a **fast**, **flexible**, and **accessible**> autorigger.
-* Build a tool for fast rig prototyping and iteration
-* Support a pipeline that involves a diverse selection of characters
-* Make rigging accessible without sacrifising flexibility
+Fossil was built with the following goals in mind:
+* Allow for **fast** rig prototyping and iteration
+* Be **flexible** and support a diverse selection of characters
+* Make rigging **accessible** without sacrifising flexibility
+* Be **adaptive** and allow for working off of existing animation data
 
-The component based approach was essential to support a variety of body types. Creature anatomies could vary greatly, so a humanoid focused auto rigger such as Maya's HIK would not work. The code based approach was also necessary for baking the rigs onto existing animation data. Again tools like motionbuilder or HIK would not allow for the variety we needed.
+Fossil is **component based**. Rigs are constructed with common rig parts that can be customized to fit each character. This design choice was essential to support a variety of body types, as the rig makes very few assumptions on the construction of the users character. Other tools like HIK and Motionbuilders control rig make strict assumptions on character construction and would not work for the project in mind.
 
-Functionally the tool is inspired by Blizzard's code based rigging for Overwatch, as seen in their talk here: Visually the tool is reminiscent of Unity's component editor, an engine I have much experience with.
+Fossil is **code driven**. Rigs are built and attached dynamically, meaning it can fit to any skeleton shape. Additionally this was essential to allow for baking the rig to existing animation data. This means the tool can be used for motion capture cleanup or even animation created with other rigs.
+
+### Inspiration
+
+Functionally the tool is inspired by Blizzard's code based rigging for Overwatch, as seen in their GDC 2017 talk "The Animation Pipeline of Overwatch". Visually the tool is reminiscent of Unity's component editor, an engine I have much experience with.
+
+## Installation
+
+Currently fossil only supports a manual installation. To do so, download the zip of this project and place the entire folder in: `C:\Users\*User*\Documents\maya\*version*\scripts`
+
+Then Maya's script editor add the following text and run it:
+```
+import fossil_main; fossil_main.load()
+```
+The main window should then appear. You can then use this code to create your own shelf button. A custom icon for adding to a shelf is available in `icon/icon-logoShelf.svg`
+
+## License
+
+MIT License
+
+Copyright (c) 2017 Cole O'Brien
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
