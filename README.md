@@ -1,4 +1,4 @@
-<h1> Fossil <h1>
+# Fossil
 ### Fossil is a Component-Based autorigger for Maya
 
 Fossil was built with the following goals in mind:
