@@ -787,6 +787,8 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         self.scrollWidget.verticalScrollBar().setValue(scrollValue)
 
+        self.logger.debug('refreshed components successfully')
+
     @Slot(list)
     def updateControlTypeData(self, controlTypeData):
         self.logger.debug('Updating component widgets with new control type data.')
@@ -850,9 +852,9 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     def data(self):
 
         data = {}
+
         for component in self._componentWidgets:
             data[component.id] = component.value
-
         return data
 
     ##### Private Methods #####
@@ -943,33 +945,30 @@ class ComponentWidget(QtWidgets.QWidget):
         self.argumentContainer.setMinimumWidth(300)
         vertical_layout.addWidget(self.argumentContainer)
 
-        # Create a form layout to house the arguments
-        form_layout = QtWidgets.QFormLayout()
-        form_layout.setLabelAlignment(QtCore.Qt.AlignLeft)
-        form_layout.setFormAlignment(QtCore.Qt.AlignLeft)
-        self.argumentContainer.setLayout(form_layout)
+        # Create a vertical layout to house the groupboxes
+        groupLayout = QtWidgets.QVBoxLayout()
+        self.argumentContainer.setLayout(groupLayout)
 
         # Create a list to store argumentWidgets
         self.argumentWidgets = {}
 
-        for key, value in sorted(self.arguments.iteritems()):
+        for groupTuple in COMPONENT_GROUPS:
 
-            # Create the widget for the argument
-            try:
-                widget = self.componentSettings[key](self, self.componentData, self.componentTypeData, self.controlTypeData)
-                widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
-                widget.value = value
-                self.argumentWidgets[key] = widget
+            groupBox = self._addArgumentGroup(groupTuple)
+            
+            if groupBox:
+                groupLayout.addWidget(groupBox)
 
-                # Connect to the widget's value changed signal
-                widget.onValueChanged.connect(self.onValueChanged)
+        
+        extraArguments = [argument for argument in self.arguments if argument not in self.argumentWidgets]
 
-                # Add the widget to the form layout
-                form_layout.addRow(key, widget)
-            except KeyError:
-                if not key in COMPONENT_SETTINGS_DEBUG:
-                    self.logger.debug('Attempting to add an argument, but key is not in settings. Key: %s', key)
-                pass
+        if len(extraArguments) > 0:
+            tuple = ('Other Attributes', extraArguments)
+            groupBox = self._addArgumentGroup(tuple)
+
+            if groupBox:
+                groupLayout.addWidget(groupBox)
+        
 
         self.argumentWidgets['name'].textChanged.connect(self._updateTitle)
 
@@ -1073,13 +1072,64 @@ class ComponentWidget(QtWidgets.QWidget):
     def _getTitle(self, name):
         return self.arguments['type'] + ' : ' + name
 
+    def _createArgumentWidget(self, key, value):
+        # Create the widget for the argument
+        try:
+            widget = self.componentSettings[key](self, self.componentData, self.componentTypeData, self.controlTypeData)
+            widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+            widget.value = value
+            self.argumentWidgets[key] = widget
+
+            # Connect to the widget's value changed signal
+            widget.onValueChanged.connect(self.onValueChanged)
+            return widget
+        except KeyError:
+            if not key in COMPONENT_SETTINGS_DEBUG:
+                self.logger.debug('Attempting to add an argument, but key is not in settings. Key: %s ', key)
+            return None
+
+    def _addArgumentGroup(self, groupTuple):
+
+        groupName = groupTuple[0]
+        types = groupTuple[1]
+
+        widgets = []
+        names = []
+
+        # Create the argument widget and add it to the form layout
+        for name in types:
+            widget = None
+            try:
+                widget = self._createArgumentWidget(name, self.arguments[name])
+            except KeyError:
+                pass
+
+            if widget is not None:
+                widgets.append(widget)
+                names.append(name)
+
+        if len(widgets) > 0:
+            groupBox = QtWidgets.QGroupBox(groupName)
+
+            # Create a form layout to house the arguments
+            form_layout = QtWidgets.QFormLayout()
+            form_layout.setLabelAlignment(QtCore.Qt.AlignLeft)
+            form_layout.setFormAlignment(QtCore.Qt.AlignLeft)
+            groupBox.setLayout(form_layout)
+
+            for index in range(len(widgets)):
+                form_layout.addRow(names[index], widgets[index])
+
+            return groupBox
+
+        return None
 
     #### Properties #####
 
     @property
     def value(self):
 
-        self.logger.debug('Generating data for %s', self.name)
+        #self.logger.debug('Generating data for %s', self.name)
 
         # Create a dictionary to reconstruct data
         data = {}
@@ -1091,9 +1141,9 @@ class ComponentWidget(QtWidgets.QWidget):
             except KeyError:
                 self.logger.info('Value for %s not found, using original value instead', key)
                 data[key] = self.arguments[key]
-
         data['hidden'] = self.hidden
         data['enabled'] = self.enabled
+
         return data
 
     @property
@@ -1180,66 +1230,35 @@ class QTarget(QtWidgets.QWidget, ComponentArgumentWidget):
 
         self.parent = parent
 
-        self.setMaximumHeight(75)
-
         # Create a layout to contain sub widgets
-        self.layout = QtWidgets.QVBoxLayout()
+        self.layout = QtWidgets.QHBoxLayout()
+
+        self.layout.setContentsMargins(0,0,0,0)
         self.setLayout(self.layout)
 
         # Create a list widget to hold deform targets
-        self.list = QtWidgets.QListWidget(self)
-        self.list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.list = QtWidgets.QLineEdit(self)
+        self.list.setReadOnly(True)
         self.layout.addWidget(self.list)
-
-        # Create a layout for the buttons
-        buttonLayout = QtWidgets.QHBoxLayout()
-        self.layout.addLayout(buttonLayout)
 
         # Create an add button
         addButton = QtWidgets.QPushButton('+', self)
-        buttonLayout.addWidget(addButton)
+        self.layout.addWidget(addButton)
         addButton.clicked.connect(self.addButtonClicked)
-
-        # Create a remove button
-        removeButton = QtWidgets.QPushButton('-', self)
-        buttonLayout.addWidget(removeButton)
-        removeButton.clicked.connect(self.removeButtonClicked)
 
     @property
     def value(self):
-        # Return values of list widget in an array
-        if self.list.item(0):
-            return self.list.item(0).text()
-        else:
-            self.logger.debug('No value in target list found, returning None')
-            return None
+        return self.list.text()
 
     @value.setter
     def value(self, value):
-        # Clear the list widget
-        self.list.clear()
-
-        # Add each value into the list
-        self.list.addItem(value)
+        self.list.setText(value)
 
     @Slot()
     def addButtonClicked(self):
         self.logger.debug('Add button clicked')
-        if self.list.count() < 1:
-            self.parent.onAddSelectedClicked.emit()
-
-    @Slot()
-    def removeButtonClicked(self):
-
-        self.logger.debug('Remove button clicked')
-
-        # Remove the selected items from the list
-        items = self.list.selectedItems()
-        for item in items:
-            self.list.takeItem(self.list.row(item))
-
-        # Update the rig
-        self.onValueChanged.emit()
+        self.list.setText('')
+        self.parent.onAddSelectedClicked.emit()
 
 class QTargetList(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
@@ -1258,6 +1277,9 @@ class QTargetList(QtWidgets.QWidget, ComponentArgumentWidget):
         # Create a list widget to hold deform targets
         self.list = QtWidgets.QListWidget(self)
         self.list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+
+        self.list.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+
         self.layout.addWidget(self.list)
 
         # Create a layout for the buttons
@@ -1459,7 +1481,7 @@ class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
         self.oldText = ""
 
         # Alert the component widget when a value is changed
-        #self.textChanged.connect(self.onValueChanged)
+        self.textChanged.connect(self.onValueChanged)
 
     @property
     def value(self):
@@ -1480,7 +1502,7 @@ class QScalarWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
         self.setValidator(QtGui.QDoubleValidator(0, 100, 2, self))
 
         # Alert the component widget when a value is changed
-        #self.textChanged.connect(self.onValueChanged)
+        self.textChanged.connect(self.onValueChanged)
 
     @property
     def value(self):
@@ -1599,6 +1621,36 @@ COMPONENT_SETTINGS_DEBUG = {
     'enabled': QReadOnlyBoolWidget,
     'mainControlData': QReadOnlyStringWidget
 }
+
+COMPONENT_GROUPS = [
+    ('General Settings', [
+        'name',
+        'target',
+        'deformTargets'
+    ]),
+    ('Space Settings', [
+        'parentSpace',
+        'uprightSpace',
+        'spaceSwitchEnabled'
+    ]),
+    ('Curve Settings', [
+        'mainControlType',
+        'mainControlScale',
+        'mainControlColor',
+        'useCustomCurve'
+    ]),
+    ('Squash and Stretch', [
+        'stretchEnabled',
+        'squashEnabled'
+    ]),
+    ('Secondary Curve Settings', [
+        'childControlType',
+        'childControlScale',
+        'poleControlCurveType',
+        'aimControlType',
+        'fkOffsetCurveType'
+    ])
+]
 
 TEST_COMPONENT_TYPES = {
     'Component': {

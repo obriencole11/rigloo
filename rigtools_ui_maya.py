@@ -36,12 +36,12 @@ class ModelController(ui.ViewController):
     def setComponentValue(self, id, data):
         # This takes the data from the ui
         # And sends it to the model for storage
-        self.logger.debug('Updating component data for %s', data['name'])
+        #self.logger.debug('Updating component data for %s', data['name'])
 
         for argument, value in data.iteritems():
             self._model.setComponentValue(self._currentRig, id, argument, value)
 
-        self._refreshView()
+
 
     @Slot(str)
     def addComponent(self, componentType):
@@ -197,12 +197,11 @@ class ModelController(ui.ViewController):
         self.onRefreshComponents.emit(self.componentData, self.componentTypeData,
                                       self.controlTypeData, self.componentSettings,
                                       self._model.activeRigs, self._currentRig)
+        self.logger.debug('Refreshed view successfully')
 
     def _loadViewData(self):
         # Update the model with new data from the view
-        data = self._window.data
-
-        for id, componentData in data.iteritems():
+        for id, componentData in self._window.data.iteritems():
             self.setComponentValue(id, componentData)
 
     ##### private properties #####

@@ -45,7 +45,8 @@ COMPONENT_TYPES = {
             'icon': "/icons/icon-ScaleComponent.svg",
             'enabled': True,
             'spaceSwitchEnabled': False,
-            'useCustomCurve': True
+            'useCustomCurve': True,
+            'mainControlData': None
         },
     'FKComponent': {
         'name': 'defaultFKComponent',
@@ -59,7 +60,8 @@ COMPONENT_TYPES = {
         'enabled': True,
         'spaceSwitchEnabled': False,
         'isLeafJoint': False,
-        'useCustomCurve': True
+        'useCustomCurve': True,
+        'mainControlData': None
     },
     'IKComponent': {
         'name': 'defaultIKComponent',
@@ -78,7 +80,8 @@ COMPONENT_TYPES = {
         'spaceSwitchEnabled': False,
         'isLeafJoint': False,
         'fkOffsetCurveType': 'sphere',
-        'useCustomCurve': True
+        'useCustomCurve': True,
+        'mainControlData': None
     },
     'LegIKComponent': {
             'name': 'defaultLegIKComponent',
@@ -97,7 +100,8 @@ COMPONENT_TYPES = {
             'spaceSwitchEnabled': False,
             'isLeafJoint': False,
             'fkOffsetCurveType': 'sphere',
-            'useCustomCurve': True
+            'useCustomCurve': True,
+            'mainControlData': None
         },
     'MultiFKComponent': {
             'name': 'defaultMultiFKComponent',
@@ -113,7 +117,8 @@ COMPONENT_TYPES = {
             'enabled': True,
             'spaceSwitchEnabled': False,
             'isLeafJoint': False,
-            'useCustomCurve': True
+            'useCustomCurve': True,
+            'mainControlData': None
     },
     'SpineIKComponent': {
             'name': 'defaultSpineIKComponent',
@@ -132,7 +137,8 @@ COMPONENT_TYPES = {
             'enabled': True,
             'spaceSwitchEnabled': False,
             'isLeafJoint': False,
-            'useCustomCurve': True
+            'useCustomCurve': True,
+            'mainControlData': None
     }
 }
 
