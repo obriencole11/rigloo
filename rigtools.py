@@ -29,7 +29,10 @@ COMPONENT_TYPES = {
         'uprightSpace': None,
         'icon': "/icons/icon-BasicComponent.svg",
         'enabled': True,
-        'spaceSwitchEnabled': False
+        'spaceSwitchEnabled': False,
+        'useCustomCurve': True,
+        'hidden': False,
+        'mainControlData': None
     },
     'ScaleComponent': {
             'name': 'defaultScaleComponent',
@@ -41,7 +44,8 @@ COMPONENT_TYPES = {
             'uprightSpace': None,
             'icon': "/icons/icon-ScaleComponent.svg",
             'enabled': True,
-            'spaceSwitchEnabled': False
+            'spaceSwitchEnabled': False,
+            'useCustomCurve': True
         },
     'FKComponent': {
         'name': 'defaultFKComponent',
@@ -54,7 +58,8 @@ COMPONENT_TYPES = {
         'icon': "/icons/icon-FKComponent.svg",
         'enabled': True,
         'spaceSwitchEnabled': False,
-        'isLeafJoint': False
+        'isLeafJoint': False,
+        'useCustomCurve': True
     },
     'IKComponent': {
         'name': 'defaultIKComponent',
@@ -72,7 +77,8 @@ COMPONENT_TYPES = {
         'enabled': True,
         'spaceSwitchEnabled': False,
         'isLeafJoint': False,
-        'fkOffsetCurveType': 'sphere'
+        'fkOffsetCurveType': 'sphere',
+        'useCustomCurve': True
     },
     'LegIKComponent': {
             'name': 'defaultLegIKComponent',
@@ -90,7 +96,8 @@ COMPONENT_TYPES = {
             'enabled': True,
             'spaceSwitchEnabled': False,
             'isLeafJoint': False,
-            'fkOffsetCurveType': 'sphere'
+            'fkOffsetCurveType': 'sphere',
+            'useCustomCurve': True
         },
     'MultiFKComponent': {
             'name': 'defaultMultiFKComponent',
@@ -105,7 +112,8 @@ COMPONENT_TYPES = {
             'icon': "/icons/icon-MultiFKComponent.svg",
             'enabled': True,
             'spaceSwitchEnabled': False,
-            'isLeafJoint': False
+            'isLeafJoint': False,
+            'useCustomCurve': True
     },
     'SpineIKComponent': {
             'name': 'defaultSpineIKComponent',
@@ -123,7 +131,8 @@ COMPONENT_TYPES = {
             'icon': "/icons/icon-SpineIKComponent.svg",
             'enabled': True,
             'spaceSwitchEnabled': False,
-            'isLeafJoint': False
+            'isLeafJoint': False,
+            'useCustomCurve': True
     }
 }
 
@@ -182,7 +191,8 @@ class ControlCurve():
         pmc.rename(control, name+'_ctrl')
 
         # Set the base scale of the curve
-        self._matchScale(control, self.scale)
+        if self.curveData is None:
+            self._matchScale(control, self.scale)
 
         # Rotate the control cvs to the desired orientation
         self._matchTarget(object=control, upVector=vector)
@@ -264,7 +274,7 @@ class BasicComponent(object):
 
     def __init__(self, name='default', target=None, mainControlType='circle', parentSpace=None, uprightSpace=None,
                  mainControlColor=dt.Color.blue, mainControlScale=10.0, spaceSwitchEnabled=False, utilityNodes=None,
-                 mainControlData=None, **kwargs):
+                 mainControlData=None, useCustomCurve=True, **kwargs):
 
         # Set up a logger for the component
         self.logger = logging.getLogger(type(self).__name__)
@@ -279,6 +289,7 @@ class BasicComponent(object):
         self.spaceSwitchEnabled = spaceSwitchEnabled
         self._orientToTarget = False
         self._orientOffset = None
+        self._useCustomCurve=useCustomCurve
 
         # These will be overriden when parent() is called
         # But we want them to have a value to determine if its none or not
@@ -287,7 +298,10 @@ class BasicComponent(object):
 
         # Target is just a name, so grab the actual pynode for it, if it exists
         if target is not None:
-            self._target = pmc.PyNode(target)
+            try:
+                self._target = pmc.PyNode(target)
+            except TypeError:
+                self._target = None
         else:
             self.logger.debug('No target specified, setting to None')
             self._target = None
@@ -569,6 +583,11 @@ class BasicComponent(object):
         arguments['type'] = self.__class__.__name__
         arguments['utilityNodes'] = {name: node.name() for name, node in self._utilityNodes.iteritems()}
 
+        if self._useCustomCurve:
+            arguments['mainControlData'] = self.controlCurveData
+        else:
+            arguments['mainControlData'] = None
+
         return arguments
 
     @property
@@ -637,6 +656,21 @@ class BasicComponent(object):
     @property
     def target(self):
         return self._target
+
+    @property
+    def controlCurveData(self):
+        # Grab a list of the cv data for the main curve
+        curveInfo = controltools.get_curve_info(self._mainControl.getShapes())
+
+        curveData = []
+        for curve in curveInfo:
+            data = {}
+            data['cvs'] = curve.cvs
+            data['knots'] = curve.knots
+            data['degree'] = curve.degree
+            curveData.append(data)
+
+        return curveData
 
 class Rig(object):
     '''
@@ -887,6 +921,17 @@ class Rig(object):
         }
 
         return rigData
+
+    @property
+    def sceneData(self):
+
+        sceneData = {}
+
+        for id, component in self._components.iteritems():
+            sceneData[id] = {}
+            sceneData[id]['mainControlData'] = component.controlCurveData
+
+        return sceneData
 
     @property
     def directory(self):
@@ -2360,6 +2405,13 @@ class RigToolsModel(object):
         except KeyError:
             self.logger.info('Rig is not currently active')
             return False
+
+    def loadSceneData(self, rigName):
+        self.logger.debug('Loading scene data for %s', rigName)
+
+        rigSceneData = self._activeRigs[rigName].sceneData
+        for id, data in rigSceneData.iteritems():
+            self.setComponentValue(rigName, id, 'mainControlData', data['mainControlData'])
 
     @property
     def data(self):

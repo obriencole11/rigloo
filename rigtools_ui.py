@@ -145,6 +145,10 @@ class BaseController(QtCore.QObject):
         # Update the model with new data from the view
         raise NotImplementedError
 
+    def _loadSceneData(self):
+        # Update the model with new data from the scene
+        raise NotImplementedError
+
     def _showError(self, message):
         # Shows an error message
         raise NotImplementedError
@@ -1583,7 +1587,8 @@ COMPONENT_SETTINGS = {
     'isLeafJoint': QBoolWidget,
     'aimControlType': QControlComboBox,
     'aimVector': QAxisWidget,
-    'aimCurveDistance': QScalarWidget
+    'aimCurveDistance': QScalarWidget,
+    'useCustomCurve': QBoolWidget
 }
 
 COMPONENT_SETTINGS_DEBUG = {
@@ -1591,7 +1596,8 @@ COMPONENT_SETTINGS_DEBUG = {
     'id': QReadOnlyStringWidget,
     'index': QReadOnlyIntWidget,
     'hidden': QReadOnlyBoolWidget,
-    'enabled': QReadOnlyBoolWidget
+    'enabled': QReadOnlyBoolWidget,
+    'mainControlData': QReadOnlyStringWidget
 }
 
 TEST_COMPONENT_TYPES = {

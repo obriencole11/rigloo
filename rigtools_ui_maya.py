@@ -127,6 +127,8 @@ class ModelController(ui.ViewController):
     def removeRig(self):
         self.logger.debug('Removing the current rig and clearing the cache')
 
+        self._model.loadSceneData(self._currentRig)
+
         # Try to remove the current rig
         self._model.removeRig(self._currentRig)
 
@@ -183,6 +185,7 @@ class ModelController(ui.ViewController):
         # This removes the rig, but only when previewed
         # This is useful for when the window closes
         self.logger.debug('Removing the preview')
+        self._model.loadSceneData()
         self._model.removePreview(self._currentRig)
 
     #### Private Methods ####
