@@ -4,8 +4,15 @@ import controltools
 import os
 import json
 import uuid
-import math
-import maya.utils
+import logging
+
+##############################
+#          Logging           #
+##############################
+
+logging.basicConfig(filename=os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'),
+                    format='%(levelname)s:%(name)s:%(message)s',
+                    level=logging.WARNING)
 
 ##############################
 #       Rig Settings         #
@@ -20,7 +27,7 @@ COMPONENT_TYPES = {
         'target': None,
         'parentSpace': None,
         'uprightSpace': None,
-        'icon': ":/holder.svg",
+        'icon': "/icons/icon-BasicComponent.svg",
         'enabled': True,
         'spaceSwitchEnabled': False
     },
@@ -32,7 +39,7 @@ COMPONENT_TYPES = {
             'target': None,
             'parentSpace': None,
             'uprightSpace': None,
-            'icon': ":/holder.svg",
+            'icon': "/icons/icon-ScaleComponent.svg",
             'enabled': True,
             'spaceSwitchEnabled': False
         },
@@ -44,26 +51,10 @@ COMPONENT_TYPES = {
         'target': None,
         'parentSpace': None,
         'uprightSpace': None,
-        'icon': ":/HIKCharacterToolFK.png",
+        'icon': "/icons/icon-FKComponent.svg",
         'enabled': True,
         'spaceSwitchEnabled': False,
         'isLeafJoint': False
-    },
-    'AimComponent': {
-        'name': 'defaultAimComponent',
-        'type': 'AimComponent',
-        'mainControlType': 'default',
-        'mainControlScale': 10.0,
-        'target': None,
-        'parentSpace': None,
-        'uprightSpace': None,
-        'icon': ":/HIKCharacterToolFK.png",
-        'enabled': True,
-        'spaceSwitchEnabled': False,
-        'isLeafJoint': False,
-        'aimControlType': 'default',
-        'aimVector': [1,0,0],
-        'aimCurveDistance': 50.0
     },
     'IKComponent': {
         'name': 'defaultIKComponent',
@@ -75,7 +66,7 @@ COMPONENT_TYPES = {
         'uprightSpace': None,
         'stretchEnabled': False,
         'squashEnabled': False,
-        'icon': ":/ikHandle.svg",
+        'icon': "/icons/icon-IKComponent.svg",
         'noFlipKnee': False,
         'poleControlCurveType': 'triangle',
         'enabled': True,
@@ -93,7 +84,7 @@ COMPONENT_TYPES = {
             'uprightSpace': None,
             'stretchEnabled': False,
             'squashEnabled': False,
-            'icon': ":/ikHandle.svg",
+            'icon': "/icons/icon-LegIKComponent.svg",
             'noFlipKnee': False,
             'poleControlCurveType': 'triangle',
             'enabled': True,
@@ -111,7 +102,7 @@ COMPONENT_TYPES = {
             'uprightSpace': None,
             'stretchEnabled': False,
             'squashEnabled': False,
-            'icon': ":/ikRPsolver.svg",
+            'icon': "/icons/icon-MultiFKComponent.svg",
             'enabled': True,
             'spaceSwitchEnabled': False,
             'isLeafJoint': False
@@ -129,7 +120,7 @@ COMPONENT_TYPES = {
             'uprightSpace': None,
             'stretchEnabled': False,
             'squashEnabled': False,
-            'icon': ":/HIKCharacterToolSkeleton_100",
+            'icon': "/icons/icon-SpineIKComponent.svg",
             'enabled': True,
             'spaceSwitchEnabled': False,
             'isLeafJoint': False
@@ -169,7 +160,9 @@ class safeCreate(object):
 ##############################
 
 class ControlCurve():
-    def __init__(self, curveType='default', scale=1.0, color=dt.Color.blue):
+    def __init__(self, curveType='default', curveData=None, scale=1.0, color=dt.Color.blue):
+
+        self.curveData = curveData
         self.curveType = curveType
         self.scale = scale
         self.color = color
@@ -178,8 +171,12 @@ class ControlCurve():
 
         vector = dt.Vector(upVector)
 
-        # Use curve tools to generate a control from the control library
-        control = controltools.create_control_curve(self.curveType)
+        if self.curveData:
+            # Create a control curve from the raw data
+            control = controltools.create_control_curve_from_data(self.curveData)
+        else:
+            # Use curve tools to generate a control from the control library
+            control = controltools.create_control_curve(self.curveType)
 
         # Rename the control curve
         pmc.rename(control, name+'_ctrl')
@@ -256,7 +253,6 @@ class Space(object):
         # This is the output connection for parent space connections
         return self._transform
 
-
 class BasicComponent(object):
     '''
     The base class of all components.
@@ -267,13 +263,15 @@ class BasicComponent(object):
     defaultControl = ControlCurve()
 
     def __init__(self, name='default', target=None, mainControlType='circle', parentSpace=None, uprightSpace=None,
-                 mainControlColor=dt.Color.blue, mainControlScale=10.0, spaceSwitchEnabled=False, utilityNodes=None, **kwargs):
+                 mainControlColor=dt.Color.blue, mainControlScale=10.0, spaceSwitchEnabled=False, utilityNodes=None,
+                 mainControlData=None, **kwargs):
+
+        # Set up a logger for the component
+        self.logger = logging.getLogger(type(self).__name__)
 
         # Set the standard variables
         self._name = name
         self._utilityNodes = {}
-        self._active = False
-        self._bound = False
         self._constraints = []
         self._mainControl = None
         self._mainControlScale = mainControlScale
@@ -291,12 +289,14 @@ class BasicComponent(object):
         if target is not None:
             self._target = pmc.PyNode(target)
         else:
+            self.logger.debug('No target specified, setting to None')
             self._target = None
 
         # Create a control curve instance based on the input settings
         self._mainControlType = ControlCurve(curveType=mainControlType,
                                              scale=mainControlScale,
-                                             color=mainControlColor)
+                                             color=mainControlColor,
+                                             curveData=mainControlData)
 
         # Grab references to any existing utility nodes
         if utilityNodes:
@@ -310,34 +310,29 @@ class BasicComponent(object):
         Doesn't make any connections, but sets them up.
         '''
 
-        if not self.active:
+        # Create a component group to contain all component DAG nodes
+        self._componentGroup = pmc.group(empty=True, name=self.name+'_com')
 
-            # Create a component group to contain all component DAG nodes
-            self._componentGroup = pmc.group(empty=True, name=self.name+'_com')
+        # Create the main control curve
+        self._createMainControl()
 
-            # Create the main control curve
-            self._createMainControl()
+        # Create the local space for the control
+        # This is better at preserving transforms than freezing transforms
+        self.localSpaceBuffer = pmc.group(empty=True, name=self.name+'_localSpace_srtBuffer')
 
-            # Create the local space for the control
-            # This is better at preserving transforms than freezing transforms
-            self.localSpaceBuffer = pmc.group(empty=True, name=self.name+'_localSpace_srtBuffer')
+        # Transform/Scale/Rotate localSpaceGroup and parent the control curve to it
+        pmc.parent(self._mainControl, self.localSpaceBuffer, relative=True)
 
-            # Transform/Scale/Rotate localSpaceGroup and parent the control curve to it
-            pmc.parent(self._mainControl, self.localSpaceBuffer, relative=True)
+        # Add parentSpace and uprightSpace groups and connections
+        self._addParentSpaceNodes()
 
-            # Add parentSpace and uprightSpace groups and connections
-            self._addParentSpaceNodes()
+        # Snap the controls to the deform targets
+        self.zero()
 
-            # Snap the controls to the deform targets
-            self.zero()
+        # Parent the parentSpaceBuffer to the component group
+        pmc.parent(self.parentSpaceBuffer, self._componentGroup)
 
-            # Parent the parentSpaceBuffer to the component group
-            pmc.parent(self.parentSpaceBuffer, self._componentGroup)
-
-            # Set the 'active' bool to True
-            self._active = True
-
-            return self._componentGroup
+        return self._componentGroup
 
     def parent(self, components, parentComponent, uprightComponent):
         '''
@@ -487,38 +482,7 @@ class BasicComponent(object):
 
     def bind(self):
         # Not really implemented for the base Component
-        self._bound = True
-
-    def unbind(self):
-
-        if self._bound:
-
-            # Mark this component as inactive
-            self.bound = False
-
-    def remove(self):
-        '''
-        Cleans up leftover components and deletes the component
-        '''
-
-        if self._bound:
-            self.unbind()
-
-        if self._active:
-
-            # Delete the component group
-            pmc.delete(self._componentGroup)
-
-            # Remove all utility nodes
-            for key, value in self._utilityNodes.iteritems():
-                try:
-                    pmc.delete(value)
-                except:
-                    pass
-
-            # Mark this component as inactive
-            self._active = False
-
+        pass
 
     #### Private Methods ####
 
@@ -681,6 +645,9 @@ class Rig(object):
 
     def __init__(self, name, componentData, directory, built=False, bound=False, baked=False, rigGroup=None):
 
+        # Set up a logger for the rig class
+        self.logger = logging.getLogger(type(self).__name__)
+
         # Assign a name, this is mostly for display purposes
         self._name = name
 
@@ -693,26 +660,19 @@ class Rig(object):
         # Create a dictionary to hold all active components
         self._components = {}
 
-        # Some simple state bools
-        self._bound = bound
-        self._built = built
-        self._baked = baked
-
         # If this rig has been built, grab its riggroup
         if rigGroup:
             self.rigGroup = pmc.PyNode(rigGroup)
 
-        # If built, fill the active component list
-        if self._built:
-            # For each component in the component data...
-            for id, com in self._componentData.iteritems():
-                # Check if component is set to 'enabled'
-                if com['enabled']:
-                    # Create an instance of the component's class
-                    component = self._createComponent(componentType=com['type'], **com)
+        # For each component in the component data...
+        for id, com in self._componentData.iteritems():
+            # Check if component is set to 'enabled'
+            if com['enabled']:
+                # Create an instance of the component's class
+                component = self._createComponent(componentType=com['type'], **com)
 
-                    # Add the component to this rigs active component dictionary
-                    self._components[id] = component
+                # Add the component to this rigs active component dictionary
+                self._components[id] = component
 
     #### Public Methods ####
 
@@ -753,32 +713,17 @@ class Rig(object):
 
             com.parent(self._components, parent, upright)
 
-        self._built = True
-
     def bind(self):
-
-        # If the rig is not built, build it
-        if not self._built:
-            self.build()
-
-        if not self._bound:
-            # For each component in the rig, bind to its target
-            for id, com in self._components.iteritems():
-                com.bind()
-
-            self._bound = True
+        # For each component in the rig, bind to its target
+        for id, com in self._components.iteritems():
+            com.bind()
 
     def snap(self):
-
         # For each component in the rig, snap to its target
         for id, com in self._components.iteritems():
             com.snap()
 
     def bake(self, frameRange=10):
-
-        if not self._built:
-            self.build()
-
         # Create a list to store sorted components
         sortedComponents = []
 
@@ -808,54 +753,31 @@ class Rig(object):
                 com = self._components[id]
                 com.snap()
                 com.bake(frame)
-        pmc.setCurrentTime(1)
+        pmc.setCurrentTime(0)
 
-        self._baked = True
-
-    def bakeDeforms(self, frameRange=10):
-
+    def unbind(self):
         targetList = []
 
         for id, com in self._components.iteritems():
             targetList += com.targets
 
-        pmc.bakeSimulation(targetList, t=(0,frameRange), hi='none')
-
-        self._baked = False
-
-    def unbind(self):
-        if self._bound:
-            # For each component in the rig, unbind it
-            for id, com in self._components.iteritems():
-                com.unbind()
-
-            self._bound = False
+        if len(targetList) > 0:
+            frameRange = int(pmc.playbackOptions(query=True, aet=True))
+            pmc.bakeSimulation(targetList, t=(0, frameRange), hi='none')
 
     def remove(self):
 
-        if self._bound:
-            self.unbind()
-
-        if self.built:
-
-            # For each component in the rig, remove it
-            for id, com in self._components.iteritems():
-                try:
-                    com.remove()
-                except:
-                    pass
-
-            # Then delete the rig group
+        # delete the rig group
+        try:
             pmc.delete(self.rigGroup)
+        except AttributeError, pmc.general.MayaNodeError:
+            pass
 
-            # And reset the value of rigGroup
-            self.rigGroup = None
+        # And reset the value of rigGroup
+        self.rigGroup = None
 
-            # And finally, clear out the dictionary of active components
-            self._components.clear()
-
-            self._built = False
-            self._baked = False
+        # And finally, clear out the dictionary of active components
+        self._components.clear()
 
     def addComponent(self, **kwargs):
 
@@ -961,9 +883,6 @@ class Rig(object):
             'name': self._name,
             'directory': self._directory,
             'componentData': self._componentData,
-            'built': self._built,
-            'bound': self._bound,
-            'baked': self._baked,
             'rigGroup': rigGroup
         }
 
@@ -972,18 +891,6 @@ class Rig(object):
     @property
     def directory(self):
         return self._directory
-
-    @property
-    def built(self):
-        return self._built
-
-    @property
-    def bound(self):
-        return self._bound
-
-    @property
-    def baked(self):
-        return self._baked
 
     @property
     def ready(self):
@@ -1254,89 +1161,71 @@ class FKComponent(BasicComponent):
         Binds the output joint to the target joint.
         '''
 
-        if not self._bound:
-
-            # Clear all keyframes on the target
-            timeSliderEnd = int(pmc.playbackOptions(query=True, aet=True))
-            pmc.cutKey(self.target, time=(0,timeSliderEnd))
+        # Clear all keyframes on the target
+        timeSliderEnd = int(pmc.playbackOptions(query=True, aet=True))
+        pmc.cutKey(self.target, time=(0,timeSliderEnd))
 
 
-            # Create all the nodes needed
-            parentSpaceMult = pmc.createNode('multMatrix', name=self.name+'_parentSpaceMult')
-            jointOrientMult = pmc.createNode('multMatrix', name=self.name+'_jointOrientMult')
-            jointOrientCompose = pmc.createNode('composeMatrix', name=self.name+'_jointOrientCompose')
-            transposeMatrix = pmc.createNode('transposeMatrix', name=self.name+'_jointOrientInverseMult')
-            translateDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_parentSpaceDecomp')
-            rotateDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_jointOrientDecomp')
-            scaleDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_scaleDecomp')
-            self._utilityNodes[self.name+'parentSpaceMult'] = parentSpaceMult
-            self._utilityNodes[self.name+'jointOrientMult'] = jointOrientMult
-            self._utilityNodes[self.name+'jointOrientCompose'] = jointOrientCompose
-            self._utilityNodes[self.name+'transposeMatrix'] = transposeMatrix
-            self._utilityNodes[self.name+'translateDecompose'] = translateDecompose
-            self._utilityNodes[self.name+'rotateDecompose'] = rotateDecompose
-            self._utilityNodes[self.name+'scaleCompose'] = scaleDecompose
+        # Create all the nodes needed
+        parentSpaceMult = pmc.createNode('multMatrix', name=self.name+'_parentSpaceMult')
+        jointOrientMult = pmc.createNode('multMatrix', name=self.name+'_jointOrientMult')
+        jointOrientCompose = pmc.createNode('composeMatrix', name=self.name+'_jointOrientCompose')
+        transposeMatrix = pmc.createNode('transposeMatrix', name=self.name+'_jointOrientInverseMult')
+        translateDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_parentSpaceDecomp')
+        rotateDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_jointOrientDecomp')
+        scaleDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_scaleDecomp')
+        self._utilityNodes[self.name+'parentSpaceMult'] = parentSpaceMult
+        self._utilityNodes[self.name+'jointOrientMult'] = jointOrientMult
+        self._utilityNodes[self.name+'jointOrientCompose'] = jointOrientCompose
+        self._utilityNodes[self.name+'transposeMatrix'] = transposeMatrix
+        self._utilityNodes[self.name+'translateDecompose'] = translateDecompose
+        self._utilityNodes[self.name+'rotateDecompose'] = rotateDecompose
+        self._utilityNodes[self.name+'scaleCompose'] = scaleDecompose
 
-            # Connect the parentspace conversion mult matrix
-            # This will bring the output into the targets space
-            pmc.connectAttr(self._output.worldMatrix[0], parentSpaceMult.matrixIn[0])
+        # Connect the parentspace conversion mult matrix
+        # This will bring the output into the targets space
+        pmc.connectAttr(self._output.worldMatrix[0], parentSpaceMult.matrixIn[0])
 
-            pmc.connectAttr(self.target.parentInverseMatrix[0], parentSpaceMult.matrixIn[1])
+        pmc.connectAttr(self.target.parentInverseMatrix[0], parentSpaceMult.matrixIn[1])
 
-            # Connect the targets joint orient to the compose matrix's input
-            # This will create a matrix from the joint orient
-            pmc.connectAttr(self.target.jointOrient, jointOrientCompose.inputRotate)
+        # Connect the targets joint orient to the compose matrix's input
+        # This will create a matrix from the joint orient
+        pmc.connectAttr(self.target.jointOrient, jointOrientCompose.inputRotate)
 
-            # Connect the Compose matrix to a transpose matrix, this will invert the joint orient
-            pmc.connectAttr(jointOrientCompose.outputMatrix, transposeMatrix.inputMatrix)
+        # Connect the Compose matrix to a transpose matrix, this will invert the joint orient
+        pmc.connectAttr(jointOrientCompose.outputMatrix, transposeMatrix.inputMatrix)
 
-            # Connect the transpose to the other multiply matrix node
-            # This will compensate the parent space switch for the joint orient
-            pmc.connectAttr(parentSpaceMult.matrixSum, jointOrientMult.matrixIn[0])
-            pmc.connectAttr(transposeMatrix.outputMatrix, jointOrientMult.matrixIn[1])
+        # Connect the transpose to the other multiply matrix node
+        # This will compensate the parent space switch for the joint orient
+        pmc.connectAttr(parentSpaceMult.matrixSum, jointOrientMult.matrixIn[0])
+        pmc.connectAttr(transposeMatrix.outputMatrix, jointOrientMult.matrixIn[1])
 
-            # Turn the joint orient matrix mult back into rotation values
-            # Then connect it to the target
-            pmc.connectAttr(jointOrientMult.matrixSum, rotateDecompose.inputMatrix)
-            pmc.connectAttr(rotateDecompose.outputRotate, self.target.rotate, force=True)
+        # Turn the joint orient matrix mult back into rotation values
+        # Then connect it to the target
+        pmc.connectAttr(jointOrientMult.matrixSum, rotateDecompose.inputMatrix)
+        pmc.connectAttr(rotateDecompose.outputRotate, self.target.rotate, force=True)
 
-            # Connect the outputs worldmatrix to the scale decompose
-            # This will get us the raw scale
-            pmc.connectAttr(self._output.worldMatrix[0], scaleDecompose.inputMatrix)
+        # Connect the outputs worldmatrix to the scale decompose
+        # This will get us the raw scale
+        pmc.connectAttr(self._output.worldMatrix[0], scaleDecompose.inputMatrix)
 
-            # Turn the parent space matrix into a translate and scale
-            # Input those into the target
-            pmc.connectAttr(parentSpaceMult.matrixSum, translateDecompose.inputMatrix, force=True)
-            pmc.connectAttr(translateDecompose.outputTranslate, self.target.translate, force=True)
+        # Turn the parent space matrix into a translate and scale
+        # Input those into the target
+        pmc.connectAttr(parentSpaceMult.matrixSum, translateDecompose.inputMatrix, force=True)
+        pmc.connectAttr(translateDecompose.outputTranslate, self.target.translate, force=True)
 
-            # Remember, scale is special, it operates on _target not target
-            # (this is different if leaf joint is checked)
-            pmc.connectAttr(scaleDecompose.outputScale, self._target.scale, force=True)
+        # Remember, scale is special, it operates on _target not target
+        # (this is different if leaf joint is checked)
+        pmc.connectAttr(scaleDecompose.outputScale, self._target.scale, force=True)
 
-            # If the component has a stretch target, set up squash and stretch
-            if self._stretchTarget is not None:
+        # If the component has a stretch target, set up squash and stretch
+        if self._stretchTarget is not None:
 
-                if self._aimAtChild:
-                    pmc.aimConstraint(self._mainControlOutput, self._stretchTarget._mainControlOutput,
-                                  wut='none', mo=True)
+            if self._aimAtChild:
+                pmc.aimConstraint(self._mainControlOutput, self._stretchTarget._mainControlOutput,
+                              wut='none', mo=True)
 
-                self._buildSquashAndStretch()
-
-            self._bound = True
-
-    def unbind(self):
-        if self._bound:
-
-            # Disconnect the target
-            pmc.disconnectAttr(self.target.rotate)
-            pmc.disconnectAttr(self.target.translate)
-            pmc.disconnectAttr(self.target.scale)
-
-            # Delete all bind related utility nodes
-            pmc.delete(self._utilityNodes[self.name+'translateDecompose'])
-            pmc.delete(self._utilityNodes[self.name+'rotateDecompose'])
-
-            self._bound = False
+            self._buildSquashAndStretch()
 
     def zero(self):
         '''
@@ -1516,20 +1405,15 @@ class MultiFKComponent(FKComponent):
     #### public methods ####
 
     def build(self):
-        if not self.active:
+        # Create a component group to contain all component DAG nodes
+        self._componentGroup = pmc.group(empty=True, name=self.name+'_com')
 
-            # Create a component group to contain all component DAG nodes
-            self._componentGroup = pmc.group(empty=True, name=self.name+'_com')
+        # Build the child components and parent them to the componentGroup
+        for child in self._childComponents:
+            child.build()
+            pmc.parent(child.componentGroup, self._componentGroup)
 
-            # Build the child components and parent them to the componentGroup
-            for child in self._childComponents:
-                child.build()
-                pmc.parent(child.componentGroup, self._componentGroup)
-
-            # Set the 'active' bool to True
-            self._active = True
-
-            return self._componentGroup
+        return self._componentGroup
 
     def parent(self, components, parentComponent, uprightComponent):
 
@@ -1552,8 +1436,6 @@ class MultiFKComponent(FKComponent):
         for child in self._childComponents:
             child.bind()
 
-        self.bound = True
-
     def snap(self):
         for child in self._childComponents:
             child.snap()
@@ -1561,37 +1443,6 @@ class MultiFKComponent(FKComponent):
     def bake(self, frame):
         for child in self._childComponents:
             child.bake(frame)
-
-    def unbind(self):
-
-        if self._bound:
-            for child in self._childComponents:
-                child.unbind()
-
-            self._bound = False
-
-    def remove(self):
-
-        # Make sure the component is unbound
-        if self._bound:
-            self.unbind()
-
-        # Remove all children
-        for child in self._childComponents:
-            child.remove()
-
-        # Delete the component group
-        pmc.delete(self.componentGroup)
-
-        # Remove all utility nodes
-        for key, value in self._utilityNodes.iteritems():
-            try:
-                pmc.delete(value)
-            except:
-                pass
-
-        # Mark this component as inactive
-        self._active = False
 
     #### public propeties ####
 
@@ -1667,37 +1518,33 @@ class IKComponent(MultiFKComponent):
     #### public methods ####
 
     def build(self):
-        if not self.active:
 
-            # Create a component group to contain all component DAG nodes
-            self._componentGroup = pmc.group(empty=True, name=self.name+'_com')
+        # Create a component group to contain all component DAG nodes
+        self._componentGroup = pmc.group(empty=True, name=self.name+'_com')
 
-            # Create the main IK control
-            self.ikComponent.build()
-            pmc.parent(self.ikComponent.componentGroup, self._componentGroup)
+        # Create the main IK control
+        self.ikComponent.build()
+        pmc.parent(self.ikComponent.componentGroup, self._componentGroup)
 
-            # Create the base control
-            self.baseComponent.build()
-            pmc.parent(self.baseComponent.componentGroup, self._componentGroup)
+        # Create the base control
+        self.baseComponent.build()
+        pmc.parent(self.baseComponent.componentGroup, self._componentGroup)
 
-            # If not using a no flip knee setup, create the pole control
-            if not self._noFlipKnee:
-                self._poleControl = self._poleControlCurveType.create(upVector=[0,1,0], name=self.name+'_main')
-                pmc.parent(self._poleControl, self.baseComponent.matrixOutput)
-                self._poleControl.setTranslation(self._getPolePoint(), worldSpace=True)
+        # If not using a no flip knee setup, create the pole control
+        if not self._noFlipKnee:
+            self._poleControl = self._poleControlCurveType.create(upVector=[0,1,0], name=self.name+'_main')
+            pmc.parent(self._poleControl, self.baseComponent.matrixOutput)
+            self._poleControl.setTranslation(self._getPolePoint(), worldSpace=True)
 
-            # Build the child components and parent them to the componentGroup
-            for child in self._childComponents:
-                child.build()
-                pmc.parent(child.componentGroup, self._componentGroup)
+        # Build the child components and parent them to the componentGroup
+        for child in self._childComponents:
+            child.build()
+            pmc.parent(child.componentGroup, self._componentGroup)
 
-            # Create the ik chain
-            self._createIKChain()
+        # Create the ik chain
+        self._createIKChain()
 
-            # Set the 'active' bool to True
-            self._active = True
-
-            return self._componentGroup
+        return self._componentGroup
 
     def parent(self, components, parentComponent, uprightComponent):
 
@@ -1735,7 +1582,6 @@ class IKComponent(MultiFKComponent):
 
         for index in range(len(self._childComponents)):
             self._childComponents[index].bake(frame)
-
 
     #### private methods ####
 
@@ -2076,31 +1922,30 @@ class SpineIKComponent(MultiFKComponent):
     ##### Public Methods #####
 
     def build(self):
-        if not self.active:
 
-            # Create a component group to contain all component DAG nodes
-            self._componentGroup = pmc.group(empty=True, name=self.name+'_com')
+        # Create a component group to contain all component DAG nodes
+        self._componentGroup = pmc.group(empty=True, name=self.name+'_com')
 
-            # Create the base component
-            self.baseComponent.build()
-            pmc.parent(self.baseComponent.componentGroup, self._componentGroup)
+        # Create the base component
+        self.baseComponent.build()
+        pmc.parent(self.baseComponent.componentGroup, self._componentGroup)
 
-            # Create the base control
-            self.endComponent.build()
-            pmc.parent(self.endComponent.componentGroup, self._componentGroup)
+        # Create the base control
+        self.endComponent.build()
+        pmc.parent(self.endComponent.componentGroup, self._componentGroup)
 
-            # Build the child components and parent them to the componentGroup
-            for index in self.middleIndex:
-                self._childComponents[index].build()
-                pmc.parent(self._childComponents[index].componentGroup, self._componentGroup)
+        # Build the child components and parent them to the componentGroup
+        for index in self.middleIndex:
+            self._childComponents[index].build()
+            pmc.parent(self._childComponents[index].componentGroup, self._componentGroup)
 
-            # Create the ik chain
-            self._createSpineSpaces()
+        # Create the ik chain
+        self._createSpineSpaces()
 
-            # Set the 'active' bool to True
-            self._active = True
+        # Set the 'active' bool to True
+        self._active = True
 
-            return self._componentGroup
+        return self._componentGroup
 
     def parent(self, components, parentComponent, uprightComponent):
 
@@ -2314,17 +2159,6 @@ class ScaleComponent(BasicComponent):
 
         pmc.connectAttr(self.matrixOutput.scale, self._target.scale)
 
-        self._bound = True
-
-    def unbind(self):
-
-        if self._bound:
-
-            pmc.disconnectAttr(self._target.scale)
-
-            # Mark this component as inactive
-            self.bound = False
-
     @property
     def ready(self):
         error = None
@@ -2335,12 +2169,17 @@ class ScaleComponent(BasicComponent):
         return  error
 
 ##############################
+##############################
 #       Model Classes        #
 ##############################
 
 class RigToolsData(object):
 
     def __init__(self, dir=os.environ['MAYA_APP_DIR']):
+
+        # Set up a logger for the data class
+        self.logger = logging.getLogger(type(self).__name__)
+
         self.dir = dir
 
     def _getDir(self, rigName):
@@ -2352,6 +2191,7 @@ class RigToolsData(object):
             with open(directory) as c:
                 return json.load(c)
         except IOError:
+            self.logger.warning('Could not load file from %s file not found.', directory)
             return {}
 
     def save(self, directory, componentData):
@@ -2366,6 +2206,9 @@ class RigToolsModel(object):
 
     def __init__(self, data):
 
+        # Set up a logger for the model
+        self.logger = logging.getLogger(type(self).__name__)
+
         # Set up initial variables
         self._activeRigs = self._loadFromScene()
 
@@ -2378,22 +2221,39 @@ class RigToolsModel(object):
 
         try:
             rigData = eval(pmc.fileInfo['rigs'])
-            print rigData
+
             rigs = {rigName: Rig(rigName, rigData['componentData'], rigData['directory'],
-                                 built=rigData['built'], baked=rigData['baked'], bound=rigData['bound'],
                                  rigGroup=rigData['rigGroup'])
                                 for rigName, rigData in rigData.iteritems()}
-
         except KeyError:
+            self.logger.info('No rigs found in scene, creating an empty rig instead')
             rigs = {}
+            pmc.fileInfo['rigs'] = repr(rigs)
+
+
 
         return rigs
 
-
-    def _saveToScene(self):
-        pmc.fileInfo['rigs'] = repr(self.data)
-
     ##### Public Methods #####
+
+    def cacheRig(self, rigName):
+        # Stores the rig input rig in fileInfo
+        # This way we know if there is a bound rig in the scene
+        data = eval(pmc.fileInfo['rigs'])
+        data[rigName] = self._activeRigs[rigName].data
+        pmc.fileInfo['rigs'] = repr(data)
+
+    def clearCache(self, rigName):
+        # Attempt to clear the cache for the input rig
+        # This is typically called when a rig is no longer bound
+        data = eval(pmc.fileInfo['rigs'])
+
+        try:
+            del data[rigName]
+            pmc.fileInfo['rigs'] = repr(data)
+        except KeyError:
+            self.logger.info('Attempting to clear cache, but cache is empty.')
+            pass
 
     def createRig(self):
 
@@ -2426,84 +2286,34 @@ class RigToolsModel(object):
     def buildRig(self, rigName):
 
         with safeCreate(self._activeRigs[rigName]):
-            # Remove the rig
-            self._activeRigs[rigName].remove()
-
             # Rebuild the rig
             self._activeRigs[rigName].build()
-
-            # Save the data to the scene
-            self._saveToScene()
 
     def bindRig(self, rigName):
 
         with safeCreate(self._activeRigs[rigName]):
-            # Remove the rig()
-            self._activeRigs[rigName].remove()
-
             # Build and bind the rig
             self._activeRigs[rigName].bind()
-
-            # Save the data to the scene
-            self._saveToScene()
 
     def bakeRig(self, rigName):
 
         with safeCreate(self._activeRigs[rigName]):
-            # Remove the rig
-            self._activeRigs[rigName].remove()
-
             # Rebuild, bake, and bind the rig
             frameRange = int(pmc.playbackOptions(query=True, aet=True))
             self._activeRigs[rigName].bake(frameRange=frameRange)
-            self._activeRigs[rigName].bind()
-
-            # Save the data to the scene
-            self._saveToScene()
-
-    def bakeDeforms(self, rigName):
-
-        with safeCreate(self._activeRigs[rigName]):
-            frameRange = int(pmc.playbackOptions(query=True, aet=True))
-            self._activeRigs[rigName].bakeDeforms(frameRange=frameRange)
-            self._activeRigs[rigName].remove()
-
-            # Save the data to the scene
-            self._saveToScene()
-
-    def unbindRig(self, rigName):
-
-        with safeCreate(self._activeRigs[rigName]):
-            self._activeRigs[rigName].unbind()
-
-            # Save the data to the scene
-            self._saveToScene()
-
-    def refreshRig(self, rigName):
-
-        # Check the state of the rig
-        built = self._activeRigs[rigName].built
-        bound = self._activeRigs[rigName].bound
-        baked = self._activeRigs[rigName].baked
-
-        # Remove the rig
-        if built:
-            self._activeRigs[rigName].build()
-        if baked:
-            self._activeRigs[rigName].bake()
-        if bound:
-            self._activeRigs[rigName].bound()
-
-        # Save the data to the scene
-        self._saveToScene()
 
     def removeRig(self, rigName):
+
+        if self.isActive(rigName):
+            self._activeRigs[rigName].unbind()
 
         # Remove the rig
         self._activeRigs[rigName].remove()
 
-        # Save the data to the scene
-        self._saveToScene()
+    def removePreview(self, rigName):
+
+        if not self.isActive(rigName):
+            self._activeRigs[rigName].remove()
 
     def saveRig(self, rigName):
         self._data.save(self._activeRigs[rigName].directory, self._activeRigs[rigName].componentData)
@@ -2543,14 +2353,13 @@ class RigToolsModel(object):
         else:
             return self._activeRigs[rigName].ready
 
-    def isBuilt(self, rigName):
-        return self._activeRigs[rigName].built
-
-    def isBound(self, rigName):
-        return self._activeRigs[rigName].bound
-
-    def isBaked(self, rigName):
-        return self._activeRigs[rigName].baked
+    def isActive(self, rigName):
+        try:
+            rigData = eval(pmc.fileInfo['rigs'])[rigName]
+            return True
+        except KeyError:
+            self.logger.info('Rig is not currently active')
+            return False
 
     @property
     def data(self):

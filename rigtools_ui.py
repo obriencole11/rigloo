@@ -3,24 +3,15 @@ from Qt.QtCore import Slot, Signal
 import os
 import logging
 import uuid
-from collections import OrderedDict
 from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
 
 ##############################
 #          Logging           #
 ##############################
 
-# Create a logger for this module
-logger = logging.getLogger(__name__)
-
-# Create a formatter for all log statements
-formatter = logging.Formatter('%(levelname)s:%(message)s')
-
-# Create a handler for logging to the console
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-stream_handler.setLevel(logging.DEBUG)
-
+logging.basicConfig(filename=os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'),
+                    format='%(levelname)s:%(name)s:%(message)s',
+                    level=logging.WARNING)
 
 ##############################
 #       UI Controllers       #
@@ -36,11 +27,6 @@ class BaseController(QtCore.QObject):
     onControlTypeDataUpdated = Signal(dict)
     onComponentTypeDataUpdated = Signal(dict)
 
-    # Signals to update on the current state of the rig
-    onBuiltStateChange = Signal(bool)
-    onBoundStateChange = Signal(bool)
-    onBakedStateChange = Signal(bool)
-
     # Signal to update the view when a new rig is created
     onNewRig = Signal()
 
@@ -49,7 +35,9 @@ class BaseController(QtCore.QObject):
 
     def __init__(self, window=None, model=None):
         QtCore.QObject.__init__(self)
-        #super(QtCore.QObject, self).__init__()
+
+        # Set up a logger for the controller classes
+        self.logger = logging.getLogger(type(self).__name__)
 
         # Set a variable to store the active rig
         self._activeRig = None
@@ -58,9 +46,11 @@ class BaseController(QtCore.QObject):
         self._window = window
         self._model = model
 
+        # Set the default value for the bakeMode
+        self._bakeMode = False
+
 
     ##### View Slots #####
-
 
     @Slot(str, dict)
     def setComponentValue(self, id, data):
@@ -109,32 +99,34 @@ class BaseController(QtCore.QObject):
         raise NotImplementedError
 
     @Slot()
-    def buildRig(self):
-        # If the model is not built, build it, otherwise remove it
-        # Send update button signal on view
+    def removeRig(self):
+        # Attempt to remove the rig
         raise NotImplementedError
 
     @Slot()
-    def bakeRig(self):
-        # If the model is baked, bake it, otherwise unbake it
-        # Send the update button signal for view
-        raise NotImplementedError
-
-    @Slot()
-    def refreshRig(self):
-        # Tell the model to refresh the rig
+    def previewRig(self):
+        # Remove the rig and build it
         raise NotImplementedError
 
     @Slot()
     def bindRig(self):
-        # If the model is not bound, bind it, otherwise unbind it
-        # Send the update button signal for view
+        # Remove and bind the rig
+        # If bake mode is on, bake the rig as well
+        raise NotImplementedError
+
+    @Slot(bool)
+    def toggleBake(self, value):
+        # Set the bake setting state
         raise NotImplementedError
 
     @Slot(bool)
     def toggleDebug(self, value):
-        # If debug on, refresh the ui with debug componentSettings
-        # Otherwise refresh with just the default
+        raise NotImplementedError
+
+    @Slot()
+    def removePreview(self):
+        # This removes the rig, but only when previewed
+        # This is useful for when the window closes
         raise NotImplementedError
 
     @Slot(str)
@@ -149,6 +141,10 @@ class BaseController(QtCore.QObject):
         # Tell the view to regenerate components
         raise NotImplementedError
 
+    def _loadViewData(self):
+        # Update the model with new data from the view
+        raise NotImplementedError
+
     def _showError(self, message):
         # Shows an error message
         raise NotImplementedError
@@ -161,27 +157,16 @@ class BaseController(QtCore.QObject):
         raise NotImplementedError
 
     @property
-    def bound(self):
-        # Return whether the rig is bound or not
-        raise NotImplementedError
-
-    @property
-    def built(self):
-        # Return whether the rig is built or not
-        raise NotImplementedError
-
-    @property
-    def baked(self):
-        # Return whether the rig is baked or not
-        raise NotImplementedError
-
-    @property
     def activeRig(self):
         return self._activeRig
 
     @activeRig.setter
     def activeRig(self, value):
         self._activeRig = value
+
+    @property
+    def bakeMode(self):
+        return self._bakeMode
 
 class ViewController(BaseController):
     '''
@@ -194,53 +179,61 @@ class ViewController(BaseController):
 
         # Connect controller signals to view slots
         self.onRefreshComponents.connect(self._window.refreshComponentWidgets)
-        self.onBoundStateChange.connect(self._window.updateBindButton)
-        self.onBakedStateChange.connect(self._window.updateBakeButton)
-        self.onBuiltStateChange.connect(self._window.updateBuildButton)
         self.onNewRig.connect(self._window.createRigWidget)
 
         # Connect view signals to controller slots
-        self._window.onComponentDataUpdated.connect(self.setComponentValue)
         self._window.onAddComponentClicked.connect(self.addComponent)
         self._window.onAddSelectedClicked.connect(self.addSelected)
         self._window.onCreateNewRigClicked.connect(self.createRig)
         self._window.onLoadRigClicked.connect(self.loadRig)
         self._window.onSaveRigClicked.connect(self.saveRig)
         self._window.onSaveRigAsClicked.connect(self.saveRigAs)
-        self._window.onBuildRigClicked.connect(self.buildRig)
-        self._window.onBakeRigClicked.connect(self.bakeRig)
-        self._window.onRefreshRigClicked.connect(self.refreshRig)
-        self._window.onBindRigClicked.connect(self.bindRig)
-        self._window.onDebugToggled.connect(self.toggleDebug)
+        self._window.onPreviewClicked.connect(self.previewRig)
+        self._window.onBindClicked.connect(self.bindRig)
+        self._window.onRemoveClicked.connect(self.removeRig)
         self._window.onRemoveComponentClicked.connect(self.removeComponent)
         self._window.onRigSwitched.connect(self.switchActiveRig)
+        self._window.onBakeToggled.connect(self.toggleBake)
+        self._window.onWindowClosed.connect(self.removePreview)
+        self._window.onDebugToggled.connect(self.toggleDebug)
 
         # Create a private variable to store the current component settings
         self._componentSettings = dict(COMPONENT_SETTINGS)
 
     def _showError(self, message):
+        '''
+        Shows a popup to alert the user that the rig cannot be built with the
+        current inputs
+        '''
+
+        self.logger.warning(message)
+
         popup = QtWidgets.QMessageBox(self._window)
         popup.setWindowTitle('Build Failed')
         popup.setText(message)
         popup.show()
 
     @Slot(bool)
-    def toggleDebug(self, value):
-        # If debug on, refresh the ui with debug componentSettings
-        # Otherwise refresh with just the default
-        logger.info('TestViewController: toggleDebud signal received. Value: ' + str(value))
+    def toggleBake(self, value):
+        # Set the bake setting state
+        self._bakeMode = value
 
+        self.logger.debug('Setting the bake to component setting to %s', value)
+
+    @Slot(bool)
+    def toggleDebug(self, value):
         if value:
-            self._componentSettings.update(dict(COMPONENT_SETTINGS_DEBUG))
+            newSettings = COMPONENT_SETTINGS.copy()
+            newSettings.update(COMPONENT_SETTINGS_DEBUG)
+            self._componentSettings = newSettings
         else:
-            self._componentSettings = dict(COMPONENT_SETTINGS)
+            self._componentSettings = COMPONENT_SETTINGS
 
         self._refreshView()
 
     @property
     def componentSettings(self):
         return self._componentSettings
-
 
 class TestViewController(ViewController):
 
@@ -270,11 +263,14 @@ class TestViewController(ViewController):
     def _refreshView(self):
         # Update the view's componentData
         # Tell the view to regenerate components
+        pass
+        '''
         self.onRefreshComponents.emit(self._componentData,
                                       self._componentTypeData,
                                       self._controlTypeData,
                                       self.componentSettings,
                                       self.rigs)
+        '''
 
     ##### View Slots #####
 
@@ -465,10 +461,12 @@ class TestViewController(ViewController):
 class MainComponentWindow(QtWidgets.QMainWindow):
 
     # Event Signals for main button presses
-    onBuildRigClicked = Signal()
-    onBindRigClicked = Signal()
-    onBakeRigClicked = Signal()
-    onRefreshRigClicked = Signal()
+    onPreviewClicked = Signal()
+    onBindClicked = Signal()
+    onRemoveClicked = Signal()
+
+    # A signal to alert the controller when the window has been close
+    onWindowClosed = Signal()
 
     # A signal for creating a rig
     # The string is the directory
@@ -496,13 +494,11 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     # The str is the id of the component to update
     onAddSelectedClicked = Signal(str)
 
-    # A signal to let the control know it should switch to debug mode
-    # The bool is whether debug should be enabled
+    # A signal to let the controller know debug mode should be on
     onDebugToggled = Signal(bool)
 
-    # A signal to let the control know a component was updated
-    # The string is the id of the component, the dict is the componentData
-    onComponentDataUpdated = Signal(str, dict)
+    # A signal to let the control know it should switch to bake mode
+    onBakeToggled = Signal(bool)
 
     # A signal to let the control know a new rig was selected
     onRigSwitched = Signal(str)
@@ -513,6 +509,9 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
     def __init__(self, parent=None):
         super(MainComponentWindow, self).__init__(parent=parent)
+
+        # Set up a logger
+        self.logger = logging.getLogger(type(self).__name__)
 
         # Create a list for storing component widgets
         self._componentWidgets = []
@@ -528,10 +527,13 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
     def _setup(self):
 
-        logger.debug('Setting up the Main Window')
-
         # Set the default state of the window
-        self.setWindowTitle('RigTools Component Manager')
+        self.setWindowTitle('Fossil')
+
+        # Set the icon for the window
+        basePath = os.path.dirname(os.path.realpath(__file__))
+        logoIcon = QtGui.QIcon(basePath + '/icons/icon-logo.svg')
+        self.setWindowIcon(logoIcon)
 
         # Set the starting size
         self.resize(300, 700)
@@ -566,6 +568,18 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         debugAction.setStatusTip('Toggle Debug Mode')
         debugAction.toggled.connect(self.onDebugToggled)
 
+        logAction = QtWidgets.QAction('Log to console', self)
+        logAction.setCheckable(True)
+        logAction.setChecked(False)
+        logAction.setStatusTip('Toggle Debug Mode')
+        logAction.toggled.connect(self.onLogToggled)
+
+        bakeAction = QtWidgets.QAction('Bake To Animation', self)
+        bakeAction.setCheckable(True)
+        bakeAction.setChecked(False)
+        bakeAction.setStatusTip('Toggle animation baking on bind')
+        bakeAction.toggled.connect(self.onBakeToggled)
+
         self.statusBar()
 
         menubar = self.menuBar()
@@ -577,6 +591,8 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         fileMenu.addAction(saveAsAction)
         fileMenu.addAction(loadAction)
         settingsMenu.addAction(debugAction)
+        settingsMenu.addAction(bakeAction)
+        settingsMenu.addAction(logAction)
 
     def _createMainWidget(self):
 
@@ -611,37 +627,35 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
     def _addButtonWidget(self):
 
-        logger.debug('Creating the add button widget')
-
         # Create the container widget for the buttons
         layout = QtWidgets.QGridLayout()
         layout.setSpacing(5)
-        #layout.setContentsMargins(5, 1, 5, 1)
         self.main_layout.addLayout(layout)
 
         # Create an 'AddComponent' button
         self.addButton = QtWidgets.QPushButton('Add Component')
         layout.addWidget(self.addButton, 0, 0, 1, 0)
 
-        # Create a 'Build' button
-        self.buildButton = QtWidgets.QPushButton('Build')
-        layout.addWidget(self.buildButton, 1, 0)
-        self.buildButton.clicked.connect(self.onBuildRigClicked)
+        # Create a 'Remove' button
+        self.removeButton = QtWidgets.QPushButton('Remove')
+        removeIcon = QtGui.QIcon(':/deleteActive.png')
+        self.removeButton.setIcon(removeIcon)
+        layout.addWidget(self.removeButton, 1, 0)
+        self.removeButton.clicked.connect(self.onRemoveClicked)
+
+        # Create a 'Preview' button
+        self.previewButton = QtWidgets.QPushButton('Preview')
+        previewIcon = QtGui.QIcon(':/rebuild.png')
+        self.previewButton.setIcon(previewIcon)
+        self.previewButton.setStyleSheet('QPushButton {background-color: #5285a6}')
+        layout.addWidget(self.previewButton, 1, 1, 1, 2)
+        self.previewButton.clicked.connect(self.onPreviewClicked)
 
         # Create a 'Bind' button
         self.bindButton = QtWidgets.QPushButton('Bind')
-        layout.addWidget(self.bindButton, 1, 1)
-        self.bindButton.clicked.connect(self.onBindRigClicked)
-
-        # Create a 'Bake' button
-        self.bakeButton = QtWidgets.QPushButton('Bake to Control Rig')
-        layout.addWidget(self.bakeButton, 2, 0)
-        self.bakeButton.clicked.connect(self.onBakeRigClicked)
-
-        # Create a 'Bind' button
-        self.refreshButton = QtWidgets.QPushButton('Refresh')
-        layout.addWidget(self.refreshButton, 2, 1)
-        self.refreshButton.clicked.connect(self.onRefreshRigClicked)
+        self.bindButton.setStyleSheet('QPushButton {background-color: #cc3333}')
+        layout.addWidget(self.bindButton, 1, 3)
+        self.bindButton.clicked.connect(self.onBindClicked)
 
     def _addRigSelector(self):
 
@@ -661,8 +675,6 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
     def _addScrollWidget(self):
 
-        logger.debug('Adding the scroll widget')
-
         # Create a scroll area to house container
         scroll = QtWidgets.QScrollArea(self.main_widget)
         scroll.setWidgetResizable(True)
@@ -680,8 +692,14 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         line.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         return line
 
+    def closeEvent(self, event):
+        self.logger.debug('Window close event received')
+        self.onWindowClosed.emit()
+        event.accept()
+
     # This is called by the controller to update the rig selector
     def _refreshActiveRigs(self, rigNames, activeRigName):
+        self.logger.debug('Refreshing the active rigs. Active Rig: %s, Rig Names: %s', activeRigName, rigNames)
 
         # Clear the combobox
         self.rigComboBox.clear()
@@ -703,7 +721,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         self.updateAddComponentMenus(componentTypeData)
 
-        logger.debug('Regenerating the component ui with new rig components')
+        self.logger.debug('Refreshing component widgets')
 
         # Save the position of the scrollbar
         scrollValue = self.scrollWidget.verticalScrollBar().value()
@@ -730,6 +748,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
             try:
                 index = data['index']
             except KeyError:
+                self.logger.info('%s Component did not have an index value, assigning a new one.', data['type'])
                 index = len(componentData) + 1
 
             # Create a widget for the component
@@ -741,11 +760,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
             # Connect the widgets signals
             widget.onAddSelected.connect(self.onAddSelectedClicked)
-            widget.onUpdateData.connect(self.onComponentDataUpdated)
             widget.onRemoveComponentClicked.connect(self.onRemoveComponentClicked)
-
-            # Connect the widget to some window signals
-            self.onUpdateComponentWidgets.connect(widget.updateComponentData)
 
             # Add the widget to the component widget dict
             self._componentWidgets.append(widget)
@@ -768,19 +783,20 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         self.scrollWidget.verticalScrollBar().setValue(scrollValue)
 
-
     @Slot(list)
     def updateControlTypeData(self, controlTypeData):
+        self.logger.debug('Updating component widgets with new control type data.')
         self.onUpdateControlTypeWidgets.emit(controlTypeData)
 
     @Slot(list)
     def updateComponentTypeData(self, componentTypeData):
+        self.logger.debug('Updating component widgets with new component type data.')
         self.onUpdateComponentTypeWidgets.emit(componentTypeData)
 
     @Slot(list)
     def updateAddComponentMenus(self, componentTypeData):
 
-        logger.info('MainComponentWindow: updateAddComponentMenus signal received. Value: ' + str(componentTypeData))
+        self.logger.debug('Updating add component menus with new component type data.')
 
         menu = QtWidgets.QMenu(self.main_widget)
 
@@ -792,44 +808,20 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         self.addButton.setMenu(menu)
 
-    # These are called by the controller when the state of the rig changes
-    @Slot(bool)
-    def updateBuildButton(self, built):
-        if built:
-            self.buildButton.setText('Remove')
-        else:
-            self.buildButton.setText('Build')
-
-    @Slot(bool)
-    def updateBindButton(self, bound):
-        if bound:
-            self.bindButton.setText('Unbind')
-        else:
-            self.bindButton.setText('Bind')
-
-    @Slot(bool)
-    def updateBakeButton(self, baked):
-        if baked:
-            self.bakeButton.setText('Bake to Skeleton')
-        else:
-            self.bakeButton.setText('Bake to Control Rig')
-
     @Slot()
     def createRigWidget(self):
         self._showComponentDataWidget()
 
     @Slot()
     def onSave(self):
-        print self._directory
-
         if self._directory is None:
+            self.logger.info('No directory set, running a save as instead of a save')
             self.onSaveAs()
         else:
             self.onSaveRigClicked.emit()
 
     @Slot()
     def onSaveAs(self):
-
         # Create a popup and grab the name (the underscore stores the filter, we don't care about that)
         name, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save New Rig', '', filter="All JSON files (*.json)")
         self._directory = name
@@ -837,11 +829,27 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
     @Slot()
     def onLoadRig(self):
-
         # Create a popup and grab the name (the underscore stores the filter, we don't care about that)
         name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'Load Rig', '', filter="All JSON files (*.json)")
         self._directory = name
         self.onLoadRigClicked.emit(name)
+
+    @Slot(bool)
+    def onLogToggled(self, value):
+        self.logger.debug('Setting log to console mode to %s', value)
+        if value:
+            logging.basicConfig(level=logging.DEBUG)
+        else:
+            logging.basicConfig(level=logging.WARNING)
+
+    @property
+    def data(self):
+
+        data = {}
+        for component in self._componentWidgets:
+            data[component.id] = component.value
+
+        return data
 
     ##### Private Methods #####
 
@@ -875,12 +883,14 @@ class ComponentWidget(QtWidgets.QWidget):
 
     # Widget Signals
     # These alert the ui to changes in the data
-    updateComponentData = Signal(dict)
     onAddSelectedClicked = Signal()
     onRemoveComponentClicked = Signal(str)
 
     def __init__(self, name, componentData, parent, id, componentTypeData, controlTypeData, componentSettings, index):
         QtWidgets.QWidget.__init__(self)
+
+        # Set up a logger
+        self.logger = logging.getLogger(type(self).__name__)
 
         # Grab a reference to the parent widget
         self.parent = parent
@@ -912,8 +922,6 @@ class ComponentWidget(QtWidgets.QWidget):
     #### Private Methods #####
 
     def _setup(self):
-
-        logger.debug('Setting up the component widget for ' + self.name)
 
         # Create a vertical layout to contain everything
         vertical_layout = QtWidgets.QVBoxLayout()
@@ -955,8 +963,9 @@ class ComponentWidget(QtWidgets.QWidget):
                 # Add the widget to the form layout
                 form_layout.addRow(key, widget)
             except KeyError:
-                logger.debug('Attempting to add an argument, but key is not in settings. Key: '
-                             + key + 'Value: ' + str(value))
+                if not key in COMPONENT_SETTINGS_DEBUG:
+                    self.logger.debug('Attempting to add an argument, but key is not in settings. Key: %s', key)
+                pass
 
         self.argumentWidgets['name'].textChanged.connect(self._updateTitle)
 
@@ -964,6 +973,7 @@ class ComponentWidget(QtWidgets.QWidget):
         try:
             self.hidden = self.arguments['hidden']
         except KeyError:
+            self.logger.info('No hidden argument found, setting hidden to default.')
             self.hidden = False
 
     def _addTitle(self):
@@ -996,10 +1006,13 @@ class ComponentWidget(QtWidgets.QWidget):
         titleLayout.addWidget(self.downArrowLabel)
 
         # Try to add a maya icon to the button
+        basePath = os.path.dirname(os.path.realpath(__file__))
+        print basePath
         try:
-            icon = QtGui.QIcon(self.componentTypeData[self.arguments['type']]['icon'])
+            icon = QtGui.QIcon(basePath + self.componentTypeData[self.arguments['type']]['icon'])
         except KeyError:
-            icon = QtGui.QIcon(self.componentTypeData['Component']['icon'])
+            self.logger.info('Not Icon set in component settings, using icon for basicComponent instead')
+            icon = QtGui.QIcon(basePath + self.componentTypeData['BasicComponent']['icon'])
         self.iconLabel = QtWidgets.QLabel()
         self.iconLabel.setPixmap(icon.pixmap(size))
         titleLayout.addWidget(self.iconLabel)
@@ -1016,6 +1029,7 @@ class ComponentWidget(QtWidgets.QWidget):
         try:
             self.enabled = self.arguments['enabled']
         except KeyError:
+            self.logger.info('No enabled state found in %s, setting to default', self.name)
             self.enabled = True
         checkBox.setChecked(self.enabled)
         checkBox.toggled.connect(self._toggleEnabled)
@@ -1043,6 +1057,7 @@ class ComponentWidget(QtWidgets.QWidget):
         try:
             self.arrowLabel.setPixmap(self.arrow2)
         except AttributeError:
+            self.logger.info('Attempting to set arrow image in %s , but label widget does not exist', self.name)
             pass
 
         self.onValueChanged()
@@ -1060,7 +1075,7 @@ class ComponentWidget(QtWidgets.QWidget):
     @property
     def value(self):
 
-        logger.debug('Generating data from ' + self.name)
+        self.logger.debug('Generating data for %s', self.name)
 
         # Create a dictionary to reconstruct data
         data = {}
@@ -1070,6 +1085,7 @@ class ComponentWidget(QtWidgets.QWidget):
             try:
                 data[key] = self.argumentWidgets[key].value
             except KeyError:
+                self.logger.info('Value for %s not found, using original value instead', key)
                 data[key] = self.arguments[key]
 
         data['hidden'] = self.hidden
@@ -1100,15 +1116,13 @@ class ComponentWidget(QtWidgets.QWidget):
 
     @Slot()
     def _updateTitle(self):
-        logger.debug('updating component title for ' + self.name)
-
         self.title.setText(self._getTitle(self.argumentWidgets['name'].value))
 
     @Slot()
     # A widget calls this to let the component know something changed
     def onValueChanged(self):
 
-        logger.info('ComponentWidget: onValueChanged Signal received. Component: ' + self.id)
+        self.logger.debug('Value changed signal received, updating data for %s', self.name)
 
         # Send this components id and value
         self.onUpdateData.emit(self.id, self.value)
@@ -1123,6 +1137,7 @@ class ComponentWidget(QtWidgets.QWidget):
     def onRemoveComponent(self):
         self.onRemoveComponentClicked.emit(self.id)
 
+
 ##############################
 #      Argument Widgets      #
 ##############################
@@ -1135,6 +1150,11 @@ class ComponentArgumentWidget(QtCore.QObject):
     # This is called when the value of a argument is changed
     onValueChanged = Signal()
 
+    def __init__(self):
+        # Set up a logger
+        self.logger = logging.getLogger(type(self).__name__)
+        self.onValueChanged.connect(self.valueChangedAlert)
+
     @property
     def value(self):
         return None
@@ -1143,9 +1163,16 @@ class ComponentArgumentWidget(QtCore.QObject):
     def value(self, value):
         pass
 
+    @Slot()
+    def valueChangedAlert(self):
+        self.logger.debug('My Value Changed.')
+
 class QTarget(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
+
         QtWidgets.QWidget.__init__(self, parent)
+
+        ComponentArgumentWidget.__init__(self)
 
         self.parent = parent
 
@@ -1180,6 +1207,7 @@ class QTarget(QtWidgets.QWidget, ComponentArgumentWidget):
         if self.list.item(0):
             return self.list.item(0).text()
         else:
+            self.logger.debug('No value in target list found, returning None')
             return None
 
     @value.setter
@@ -1192,14 +1220,14 @@ class QTarget(QtWidgets.QWidget, ComponentArgumentWidget):
 
     @Slot()
     def addButtonClicked(self):
-        logger.debug('Add button clicked')
+        self.logger.debug('Add button clicked')
         if self.list.count() < 1:
             self.parent.onAddSelectedClicked.emit()
 
     @Slot()
     def removeButtonClicked(self):
 
-        logger.debug('Remove button clicked for ' + self.parent.name)
+        self.logger.debug('Remove button clicked')
 
         # Remove the selected items from the list
         items = self.list.selectedItems()
@@ -1212,6 +1240,8 @@ class QTarget(QtWidgets.QWidget, ComponentArgumentWidget):
 class QTargetList(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
         QtWidgets.QWidget.__init__(self, parent)
+
+        ComponentArgumentWidget.__init__(self)
 
         self.parent = parent
 
@@ -1255,13 +1285,13 @@ class QTargetList(QtWidgets.QWidget, ComponentArgumentWidget):
 
     @Slot()
     def addButtonClicked(self):
-        logger.debug('Add button clicked')
+        self.logger.debug('Add Button Clicked')
         self.parent.onAddSelectedClicked.emit()
 
     @Slot()
     def removeButtonClicked(self):
 
-        logger.debug('Remove button clicked for ' + self.parent.name)
+        self.logger.debug('Remove Button Clicked')
 
         # Remove the selected items from the list
         items = self.list.selectedItems()
@@ -1276,6 +1306,8 @@ class QControlComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
 
         QtWidgets.QComboBox.__init__(self, parent)
 
+        ComponentArgumentWidget.__init__(self)
+
         # Alert the component when a value is changed
         self.activated.connect(self.onValueChanged)
 
@@ -1287,11 +1319,13 @@ class QControlComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
 
     @value.setter
     def value(self, value):
-        self.setCurrentText(value)
+        self.setCurrentIndex(self.findText(value))
 
 class QComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
         QtWidgets.QComboBox.__init__(self, parent)
+
+        ComponentArgumentWidget.__init__(self)
 
         # Alert the component when a value is changed
         self.activated.connect(self.onValueChanged)
@@ -1309,6 +1343,8 @@ class QComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
 class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
         QtWidgets.QComboBox.__init__(self, parent)
+
+        ComponentArgumentWidget.__init__(self)
 
         # Alert the component when a value is changed
         self.activated.connect(self.onValueChanged)
@@ -1335,19 +1371,21 @@ class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
             for key, value in self.componentData.iteritems():
                 if value['name'] == self.currentText():
                     return key
-            logger.exception('RigComponentComboBox: The selected value did not match any components name')
+            self.logger.error('The component %s does not exist')
 
     @value.setter
     def value(self, value):
         if value is None:
-            self.setCurrentText('world')
+            self.setCurrentIndex(self.findText('world'))
         else:
             self._id = value
-            self.setCurrentText(self.componentData[value]['name'])
+            self.setCurrentIndex(self.findText(self.componentData[value]['name']))
 
 class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
         QtWidgets.QWidget.__init__(self, parent)
+
+        ComponentArgumentWidget.__init__(self)
 
         # Create a horizontal layout to hold text fields
         self.layout = QtWidgets.QHBoxLayout()
@@ -1378,6 +1416,8 @@ class QAxisWidget(QtWidgets.QComboBox, ComponentArgumentWidget):
 
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
         QtWidgets.QComboBox.__init__(self, parent)
+
+        ComponentArgumentWidget.__init__(self)
 
         # Alert the component when a value is changed
         self.activated.connect(self.onValueChanged)
@@ -1410,8 +1450,12 @@ class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
 
         QtWidgets.QLineEdit.__init__(self, parent)
 
+        ComponentArgumentWidget.__init__(self)
+
+        self.oldText = ""
+
         # Alert the component widget when a value is changed
-        self.editingFinished.connect(self.onValueChanged)
+        #self.textChanged.connect(self.onValueChanged)
 
     @property
     def value(self):
@@ -1420,16 +1464,19 @@ class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
     @value.setter
     def value(self, value):
         self.setText(value)
+        self.oldText = value
 
 class QScalarWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
 
         QtWidgets.QLineEdit.__init__(self, parent)
 
+        ComponentArgumentWidget.__init__(self)
+
         self.setValidator(QtGui.QDoubleValidator(0, 100, 2, self))
 
         # Alert the component widget when a value is changed
-        self.editingFinished.connect(self.onValueChanged)
+        #self.textChanged.connect(self.onValueChanged)
 
     @property
     def value(self):
@@ -1444,6 +1491,9 @@ class QReadOnlyStringWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
 
         QtWidgets.QLineEdit.__init__(self, parent)
+
+        ComponentArgumentWidget.__init__(self)
+
         self.setReadOnly(True)
         self.setEnabled(False)
 
@@ -1460,6 +1510,9 @@ class QReadOnlyIntWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
 
         QtWidgets.QLineEdit.__init__(self, parent)
+
+        ComponentArgumentWidget.__init__(self)
+
         self.setReadOnly(True)
         self.setEnabled(False)
 
@@ -1476,6 +1529,8 @@ class QBoolWidget(QtWidgets.QCheckBox, ComponentArgumentWidget):
 
         QtWidgets.QCheckBox.__init__(self, parent)
 
+        ComponentArgumentWidget.__init__(self)
+
         # Alert the component widget when a value is changed
         self.stateChanged.connect(self.onValueChanged)
 
@@ -1490,6 +1545,9 @@ class QBoolWidget(QtWidgets.QCheckBox, ComponentArgumentWidget):
 class QReadOnlyBoolWidget(QBoolWidget):
     def __init__(self, *args, **kwargs):
         super(QReadOnlyBoolWidget, self).__init__(*args, **kwargs)
+
+        ComponentArgumentWidget.__init__(self)
+
         self.setEnabled(False)
 
     @property
@@ -1680,8 +1738,6 @@ def _test():
 
     # Begin the event loop
     app.exec_()
-
-
 
 if __name__ == '__main__':
     _test()

@@ -2,32 +2,18 @@ import rigtools
 import rigtools_ui as ui
 import controltools
 import pymel.core as pmc
-import uuid
 import logging
-import os
 from Qt import QtCore, QtWidgets
 from Qt.QtCore import Slot, Signal
-
+import os
 
 ##############################
 #          Logging           #
 ##############################
 
-# Create a logger for this module
-logger = logging.getLogger(__name__)
-
-# Create a formatter for all log statements
-formatter = logging.Formatter('%(levelname)s:%(message)s')
-
-# Create a handler for logging to the console
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-stream_handler.setLevel(logging.DEBUG)
-
-# Enable logging to the console
-logger.addHandler(stream_handler)
-logger.setLevel(logging.DEBUG)
-
+logging.basicConfig(filename=os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'),
+                    format='%(levelname)s:%(name)s:%(message)s',
+                    level=logging.WARNING)
 
 class ModelController(ui.ViewController):
 
@@ -36,8 +22,13 @@ class ModelController(ui.ViewController):
 
         try:
             self._currentRig = self._model.activeRigs[0]
+            self.logger.debug('Found an active rig in the model, setting it as the current rig')
+            self.onNewRig.emit()
+            self._refreshView()
+
         except IndexError:
-            self._currentRig = None
+            self.logger.info('No active rigs found, creating a new one')
+            self.createRig()
 
     ##### View Slots #####
 
@@ -45,6 +36,8 @@ class ModelController(ui.ViewController):
     def setComponentValue(self, id, data):
         # This takes the data from the ui
         # And sends it to the model for storage
+        self.logger.debug('Updating component data for %s', data['name'])
+
         for argument, value in data.iteritems():
             self._model.setComponentValue(self._currentRig, id, argument, value)
 
@@ -54,13 +47,19 @@ class ModelController(ui.ViewController):
     def addComponent(self, componentType):
         # Tells the model to add a new component
         # Then refreshes the view's components
-        self._model.addComponent(self._currentRig, componentType)
+        self.logger.debug('Adding a new %s component to the rig', str(componentType))
+
+        self._loadViewData()
+        id = self._model.addComponent(self._currentRig, componentType)
+        self.addSelected(id)
         self._refreshView()
 
     @Slot(str)
     def removeComponent(self, id):
         # Tells the model to remove the specified component
         # Then refreshed the view
+        self.logger.debug('Removing a %s component from the rig', self.componentData[id])
+        self._loadViewData()
         self._model.removeComponent(self._currentRig, id)
         self._refreshView()
 
@@ -68,8 +67,8 @@ class ModelController(ui.ViewController):
     def addSelected(self, id):
         # Adds selected joints to the specified component
         # Then refresh the view
-        logger.info('Model Controller: Add Selected signal received. Value: ' + id)
-
+        self.logger.debug('Adding selected joints to a %s component', self.componentData[id])
+        self._loadViewData()
         selected = pmc.selected()
         nameData = [target.name() for target in selected]
         oldData = self.componentData[id]
@@ -77,7 +76,12 @@ class ModelController(ui.ViewController):
         try:
             oldData['deformTargets'].extend(nameData)
         except KeyError:
-            oldData['target'] = nameData[0]
+            try:
+                oldData['target'] = nameData[0]
+                self.logger.info('No deform targets found in data for %s, instead adding a target', self.componentData[id])
+            except IndexError:
+                self.logger.info('Looks like nothing is selected, ignoring add selected.')
+                pass
 
         self.setComponentValue(id, oldData)
 
@@ -88,7 +92,7 @@ class ModelController(ui.ViewController):
         # Tells the model to create a rig with the specified name
         # Tells the view to show the componentData widget and refresh the components
 
-        logger.info('Model Controller: CreateRig Signal Received')
+        self.logger.debug('Creating a new rig')
 
         self._currentRig = self._model.createRig()
         self.onNewRig.emit()
@@ -98,7 +102,7 @@ class ModelController(ui.ViewController):
     def loadRig(self, directory):
         # Tells the model to load the specified rig
         # tells the view to show the componentData and refresh the components
-        logger.info('Model Controller: LoadRig Signal Received')
+        self.logger.debug('Loading a rig from %s', directory)
         self._currentRig = self._model.loadRig(directory)
         self.onNewRig.emit()
         self._refreshView()
@@ -106,76 +110,97 @@ class ModelController(ui.ViewController):
     @Slot()
     def saveRig(self):
         # Saves the active rig to the model's data
-        logger.info('Model Controller: SaveRig Signal Received')
+        self.logger.debug('Saving the rig')
+        self._loadViewData()
         self._model.saveRig(self._currentRig)
 
     @Slot(str)
     def saveRigAs(self, directory):
 
-        logger.info('Model Controller: SaveRigAs Signal Received')
-
+        self.logger.debug('Saving rig in %s', directory)
+        self._loadViewData()
         self._currentRig = self._model.saveRigAs(directory, self._currentRig)
         self.onNewRig.emit()
         self._refreshView()
 
     @Slot()
-    def buildRig(self):
-        # If the model is not built, build it, otherwise remove it
-        # Send update button signal on view
-        error = self._model.isReady(self._currentRig)
+    def removeRig(self):
+        self.logger.debug('Removing the current rig and clearing the cache')
 
-        if error is None:
-            if self.built:
-                self._model.removeRig(self._currentRig)
-            else:
-                self._model.buildRig(self._currentRig)
+        # Try to remove the current rig
+        self._model.removeRig(self._currentRig)
 
-            self.onBuiltStateChange.emit(self.built)
-        else:
-            self._showError(error)
+        # Then remove the rig from fileInfo
+        self._model.clearCache(self._currentRig)
 
     @Slot()
-    def bakeRig(self):
-        # If the model is baked, bake it, otherwise unbake it
-        # Send the update button signal for view
-        if self.baked:
-            self._model.bakeDeforms(self._currentRig)
+    def previewRig(self):
+
+        if self._model.isReady(self._currentRig) is None:
+            self.logger.debug('Rig is ready to build, refreshing the rig')
+
+            # Remove the rig
+            self.removeRig()
+
+            self._loadViewData()
+
+            # Then build the rig
+            self._model.buildRig(self._currentRig)
+
         else:
-            self._model.bakeRig(self._currentRig)
-
-        self.onBakedStateChange.emit(self.baked)
-
-    @Slot()
-    def refreshRig(self):
-        # Tell the model to refresh the rig
-        self._model.refreshRig(self._currentRig)
+            self.logger.debug('showing error')
+            self._showError(self._model.isReady(self._currentRig))
 
     @Slot()
     def bindRig(self):
-        # If the model is not bound, bind it, otherwise unbind it
-        # Send the update button signal for view
-        if self.bound:
-            self._model.unbindRig(self._currentRig)
-        else:
-            self._model.bindRig(self._currentRig)
+        self.logger.debug('Attempting to bind the current rig.')
 
-        self.onBoundStateChange.emit(self.bound)
+        # Refresh the rig
+        self.previewRig()
+
+        # If bake mode is on, bake the rig first
+        if self._bakeMode:
+            self.logger.debug('Bake mode is set to True, baking to rig.')
+            self._model.bakeRig(self._currentRig)
+
+        # Then bind it to the skeleton
+        self.logger.debug('Binding rig to skeleton, caching the rig.')
+        self._model.bindRig(self._currentRig)
+
+        # And cache the rig
+        self._model.cacheRig(self._currentRig)
 
     @Slot(str)
     def switchActiveRig(self, rigName):
         # This will tell the model to switch the active rig
+        self._loadViewData()
         self._currentRig = rigName
+        self.logger.debug('Active rig switched to %s', rigName)
         self._refreshView()
+
+    @Slot()
+    def removePreview(self):
+        # This removes the rig, but only when previewed
+        # This is useful for when the window closes
+        self.logger.debug('Removing the preview')
+        self._model.removePreview(self._currentRig)
 
     #### Private Methods ####
 
     def _refreshView(self):
         # Update the view's componentData
         # Tell the view to regenerate components
+        self.logger.debug('Refreshing the view.')
         self.onRefreshComponents.emit(self.componentData, self.componentTypeData,
                                       self.controlTypeData, self.componentSettings,
                                       self._model.activeRigs, self._currentRig)
 
+    def _loadViewData(self):
+        # Update the model with new data from the view
+        data = self._window.data
+
+        for id, componentData in data.iteritems():
+            self.setComponentValue(id, componentData)
 
     ##### private properties #####
 
@@ -192,22 +217,6 @@ class ModelController(ui.ViewController):
     @property
     def componentTypeData(self):
         return rigtools.COMPONENT_TYPES
-
-    @property
-    def bound(self):
-        # Return whether the rig is bound or not
-        return self._model.isBound(self._currentRig)
-
-    @property
-    def built(self):
-        # Return whether the rig is built or not
-        return self._model.isBuilt(self._currentRig)
-
-    @property
-    def baked(self):
-        # Return whether the rig is baked or not
-        return self._model.isBaked(self._currentRig)
-
 
 class MayaController(ModelController):
 
@@ -227,12 +236,15 @@ def show():
     # If the window already exists, don't create a new one
     if mainWindow is None:
 
+        # Setup the loggers
+
+
         # Grab the maya application and the main maya window
         app = QtWidgets.QApplication.instance()
         mayaWindow = {o.objectName(): o for o in app.topLevelWidgets()}["MayaWindow"]
 
         # Create the window
-        mainWindow = ui.MayaComponentWindow(mayaWindow)
+        mainWindow = ui.MainComponentWindow(mayaWindow)
 
         # Create the data
         data = rigtools.RigToolsData()
@@ -244,6 +256,7 @@ def show():
         controller = MayaController(mainWindow, model)
 
     # Show the window
-    mainWindow.show(dockable=True, area='right', allowedArea = "right")
+    #mainWindow.show(dockable=True, area='right', allowedArea = "right")
+    mainWindow.show()
 
 # from rigtools import rigtools_ui_maya; reload(rigtools_ui_maya); rigtools_ui_maya.show()

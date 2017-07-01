@@ -140,6 +140,20 @@ def create_control_curve(name):
         pmc.delete(curve)
     return parent
 
+def create_control_curve_from_data(data):
+    parent = pmc.group(em=True)
+
+    newControl = data
+    curveInfo = []
+    for c in newControl:
+        control = Control(c['cvs'], c['knots'], c['degree'])
+        curveInfo.append(control)
+
+    for c in curveInfo:
+        curve = pmc.curve(p=c.cvs, k=c.knots, d=c.degree)
+        pmc.parent(curve.getShape(), parent, shape=True, r=True)
+        pmc.delete(curve)
+    return parent
 
 def get_control(name):
     '''

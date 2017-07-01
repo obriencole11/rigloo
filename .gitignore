@@ -103,4 +103,7 @@ ENV/
 
 # Pycharm Project
 .idea
+
+# Illustrator File
+.ai
 # End of https://www.gitignore.io/api/python
