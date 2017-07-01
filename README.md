@@ -1,6 +1,7 @@
-![Fossile Logo](/icons/icon-logo.svg)
+![Fossile Logo](rigtools/icons/icon-logo.svg)
 # Fossil
-## A Component-Based autorigger for Maya
+
+### Fossile is a Component-Based autorigger for Maya
 
 Fossil was built with the goal of creating a <strong>fast</strong>, <strong>flexible</strong>, and <strong>accessible</strong> autorigger.
 * Build a tool for fast rig prototyping and iteration
