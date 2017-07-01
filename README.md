@@ -1,6 +1,4 @@
-<img src="icons/icon-logo.png" width="128" height="128" />
 <h1> Fossil <h1>
-
 ### Fossil is a Component-Based autorigger for Maya
 
 Fossil was built with the following goals in mind:
@@ -26,6 +24,9 @@ Then Maya's script editor add the following text and run it:
 import fossil_main; fossil_main.load()
 ```
 The main window should then appear. You can then use this code to create your own shelf button. A custom icon for adding to a shelf is available in `icon/icon-logoShelf.svg`
+
+## How To Use
+For a detailed description of how the tool works, consult the [documentation](https://github.com/obriencole11/fossil/blob/master/Documentation.md).
 
 ## License
 
