@@ -27,7 +27,7 @@ The main window should then appear. You can then use this code to create your ow
 
 ## Features
 
-At this time, fossil support the following features:
+Fossil includes the following features:
 * Rig saving/loading
 * Rig baking to existing animation
 * 7 components including:
