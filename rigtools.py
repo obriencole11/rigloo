@@ -30,7 +30,7 @@ COMPONENT_TYPES = {
         'icon': "/icons/icon-BasicComponent.svg",
         'enabled': True,
         'spaceSwitchEnabled': False,
-        'useCustomCurve': True,
+        'useCustomCurve': False,
         'hidden': False,
         'mainControlData': None
     },
@@ -45,7 +45,7 @@ COMPONENT_TYPES = {
             'icon': "/icons/icon-ScaleComponent.svg",
             'enabled': True,
             'spaceSwitchEnabled': False,
-            'useCustomCurve': True,
+            'useCustomCurve': False,
             'mainControlData': None
         },
     'FKComponent': {
@@ -60,7 +60,7 @@ COMPONENT_TYPES = {
         'enabled': True,
         'spaceSwitchEnabled': False,
         'isLeafJoint': False,
-        'useCustomCurve': True,
+        'useCustomCurve': False,
         'mainControlData': None
     },
     'IKComponent': {
@@ -78,7 +78,7 @@ COMPONENT_TYPES = {
         'enabled': True,
         'spaceSwitchEnabled': False,
         'isLeafJoint': False,
-        'useCustomCurve': True,
+        'useCustomCurve': False,
         'mainControlData': None,
         'poleCurveType': 'triangle',
         'poleCurveScale': 5.0,
@@ -104,7 +104,7 @@ COMPONENT_TYPES = {
             'enabled': True,
             'spaceSwitchEnabled': False,
             'isLeafJoint': False,
-            'useCustomCurve': True,
+            'useCustomCurve': False,
             'mainControlData': None,
             'poleCurveType': 'triangle',
             'poleCurveScale': 5.0,
@@ -129,7 +129,7 @@ COMPONENT_TYPES = {
             'enabled': True,
             'spaceSwitchEnabled': False,
             'isLeafJoint': False,
-            'useCustomCurve': True,
+            'useCustomCurve': False,
             'mainControlData': None
     },
     'SpineIKComponent': {
@@ -149,7 +149,7 @@ COMPONENT_TYPES = {
             'enabled': True,
             'spaceSwitchEnabled': False,
             'isLeafJoint': False,
-            'useCustomCurve': True,
+            'useCustomCurve': False,
             'mainControlData': None
     }
 }
@@ -292,7 +292,7 @@ class BasicComponent(object):
 
     def __init__(self, name='default', target=None, mainControlType='circle', parentSpace=None, uprightSpace=None,
                  mainControlColor=dt.Color.blue, mainControlScale=10.0, spaceSwitchEnabled=False, utilityNodes=None,
-                 mainControlData=None, useCustomCurve=True, **kwargs):
+                 mainControlData=None, useCustomCurve=False, **kwargs):
 
         # Set up a logger for the component
         self.logger = logging.getLogger(type(self).__name__)
@@ -310,7 +310,7 @@ class BasicComponent(object):
         self._useCustomCurve=useCustomCurve
 
         if mainControlData is not None:
-            self.logger.debug('Custom curve data detected')
+            self.logger.debug('Custom curve data detected: %s ', str(mainControlData))
             self._mainControlData = mainControlData
         else:
             self.logger.debug('No curve data detected, setting to none')
@@ -351,6 +351,9 @@ class BasicComponent(object):
 
         # Create a component group to contain all component DAG nodes
         self._componentGroup = pmc.group(empty=True, name=self.name+'_com')
+
+        if not self._useCustomCurve:
+            self._mainControlType.curveData = None
 
         # Create the main control curve
         self._createMainControl()
@@ -590,6 +593,7 @@ class BasicComponent(object):
 
             return curveData
         except AttributeError:
+            self.logger.debug('Unable to get curve data')
             return None
 
     #### Public Properties ####
@@ -697,7 +701,11 @@ class BasicComponent(object):
     @property
     def controlCurveData(self):
         # Grab a list of the cv data for the main curve
-        return [self._getCurveData(self._mainControl)]
+        if self._mainControl is not None:
+            if self._mainControl.exists():
+                return [self._getCurveData(self._mainControl)]
+        else:
+            return None
 
 class Rig(object):
     '''
@@ -949,8 +957,14 @@ class Rig(object):
         sceneData = {}
 
         for id, component in self._components.iteritems():
-            sceneData[id] = {}
-            sceneData[id]['mainControlData'] = component.controlCurveData
+            data = component.controlCurveData
+
+            if data:
+                sceneData[id] = {}
+                sceneData[id]['mainControlData'] = component.controlCurveData
+            else:
+                sceneData = None
+                break
 
         return sceneData
 
@@ -2495,8 +2509,13 @@ class RigToolsModel(object):
         self.logger.debug('Loading scene data for %s', rigName)
 
         rigSceneData = self._activeRigs[rigName].sceneData
-        for id, data in rigSceneData.iteritems():
-            self.setComponentValue(rigName, id, 'mainControlData', data['mainControlData'])
+
+        if rigSceneData is not None:
+            self.logger.debug('Scene data accepted, data: %s ',str(rigSceneData))
+            for id, data in rigSceneData.iteritems():
+                self.setComponentValue(rigName, id, 'mainControlData', data['mainControlData'])
+        else:
+            self.logger.debug('Scene data is None, ignoring')
 
     @property
     def data(self):

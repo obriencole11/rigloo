@@ -1144,6 +1144,7 @@ class ComponentWidget(QtWidgets.QWidget):
             data[key] = value
         data['hidden'] = self.hidden
         data['enabled'] = self.enabled
+        data['id'] = self.id
 
         return data
 
