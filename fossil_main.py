@@ -232,7 +232,7 @@ mainWindow = None
 controller = None
 
 
-def show():
+def load():
     global mainWindow
     global controller
 
