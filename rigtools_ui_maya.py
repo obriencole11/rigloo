@@ -36,11 +36,10 @@ class ModelController(ui.ViewController):
     def setComponentValue(self, id, data):
         # This takes the data from the ui
         # And sends it to the model for storage
-        #self.logger.debug('Updating component data for %s', data['name'])
+        self.logger.debug('Updating component data for %s', data['name'])
 
         for argument, value in data.iteritems():
             self._model.setComponentValue(self._currentRig, id, argument, value)
-
 
 
     @Slot(str)
@@ -127,7 +126,11 @@ class ModelController(ui.ViewController):
     def removeRig(self):
         self.logger.debug('Removing the current rig and clearing the cache')
 
+        self._loadViewData()
+
         self._model.loadSceneData(self._currentRig)
+
+        self._refreshView()
 
         # Try to remove the current rig
         self._model.removeRig(self._currentRig)
@@ -143,8 +146,6 @@ class ModelController(ui.ViewController):
 
             # Remove the rig
             self.removeRig()
-
-            self._loadViewData()
 
             # Then build the rig
             self._model.buildRig(self._currentRig)

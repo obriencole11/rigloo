@@ -924,7 +924,6 @@ class ComponentWidget(QtWidgets.QWidget):
 
         self._setup()
 
-
     #### Private Methods #####
 
     def _setup(self):
@@ -1137,7 +1136,8 @@ class ComponentWidget(QtWidgets.QWidget):
         # Iterate through widgets and grab their values
         for key, widget in self.arguments.iteritems():
             try:
-                data[key] = self.argumentWidgets[key].value
+                if data[key] is not None:
+                    data[key] = self.argumentWidgets[key].value
             except KeyError:
                 self.logger.info('Value for %s not found, using original value instead', key)
                 data[key] = self.arguments[key]
@@ -1525,11 +1525,11 @@ class QReadOnlyStringWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
 
     @property
     def value(self):
-        return self.text()
+        return None
 
     @value.setter
     def value(self, value):
-        self.setText(value)
+        self.setText(str(value))
 
 class QReadOnlyIntWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
 
@@ -1602,8 +1602,14 @@ COMPONENT_SETTINGS = {
     'stretchEnabled': QBoolWidget,
     'squashEnabled': QBoolWidget,
     'noFlipKnee': QBoolWidget,
-    'poleControlCurveType': QControlComboBox,
-    'fkOffsetCurveType': QControlComboBox,
+    'poleCurveType': QControlComboBox,
+    'poleCurveScale': QScalarWidget,
+    'offsetCurveType': QControlComboBox,
+    'offsetCurveScale': QScalarWidget,
+    'baseCurveType': QControlComboBox,
+    'baseCurveScale': QScalarWidget,
+    'baseCurveParentSpace': QRigComponentComboBox,
+    'baseCurveUprightSpace': QRigComponentComboBox,
     'target': QTarget,
     'spaceSwitchEnabled': QBoolWidget,
     'isLeafJoint': QBoolWidget,
@@ -1626,7 +1632,9 @@ COMPONENT_GROUPS = [
     ('General Settings', [
         'name',
         'target',
-        'deformTargets'
+        'deformTargets',
+        'isLeafJoint',
+        'noFlipKnee'
     ]),
     ('Space Settings', [
         'parentSpace',
@@ -1644,11 +1652,30 @@ COMPONENT_GROUPS = [
         'squashEnabled'
     ]),
     ('Secondary Curve Settings', [
+        'baseCurveType',
+        'baseCurveScale',
+        'baseCurveParentSpace',
+        'baseCurveUprightSpace',
+        'secondaryParentSpace',
+        'secondaryUprightSpace'
+    ]),
+    ('Extra Curve Settings', [
         'childControlType',
         'childControlScale',
-        'poleControlCurveType',
-        'aimControlType',
-        'fkOffsetCurveType'
+        'offsetCurveType',
+        'offsetCurveScale',
+        'poleCurveScale',
+        'poleCurveType',
+        'spineControlType',
+        'spineControlScale'
+    ]),
+    ('Debug', [
+        'type',
+        'id',
+        'index',
+        'hidden',
+        'enabled',
+        'mainControlData'
     ])
 ]
 

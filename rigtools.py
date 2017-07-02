@@ -75,17 +75,23 @@ COMPONENT_TYPES = {
         'squashEnabled': False,
         'icon': "/icons/icon-IKComponent.svg",
         'noFlipKnee': False,
-        'poleControlCurveType': 'triangle',
         'enabled': True,
         'spaceSwitchEnabled': False,
         'isLeafJoint': False,
-        'fkOffsetCurveType': 'sphere',
         'useCustomCurve': True,
-        'mainControlData': None
+        'mainControlData': None,
+        'poleCurveType': 'triangle',
+        'poleCurveScale': 5.0,
+        'baseCurveType':'cube',
+        'baseCurveScale':10.0,
+        'baseCurveParentSpace':None,
+        'baseCurveUprightSpace':None,
+        'offsetCurveType':'sphere',
+        'offsetCurveScale':5.0
     },
     'LegIKComponent': {
-            'name': 'defaultLegIKComponent',
-            'type': 'LegIKComponent',
+            'name': 'defaultIKComponent',
+            'type': 'IKComponent',
             'mainControlType': 'cube',
             'mainControlScale': 10.0,
             'deformTargets': [],
@@ -93,15 +99,21 @@ COMPONENT_TYPES = {
             'uprightSpace': None,
             'stretchEnabled': False,
             'squashEnabled': False,
-            'icon': "/icons/icon-LegIKComponent.svg",
+            'icon': "/icons/icon-IKComponent.svg",
             'noFlipKnee': False,
-            'poleControlCurveType': 'triangle',
             'enabled': True,
             'spaceSwitchEnabled': False,
             'isLeafJoint': False,
-            'fkOffsetCurveType': 'sphere',
             'useCustomCurve': True,
-            'mainControlData': None
+            'mainControlData': None,
+            'poleCurveType': 'triangle',
+            'poleCurveScale': 5.0,
+            'baseCurveType':'cube',
+            'baseCurveScale':10.0,
+            'baseCurveParentSpace':None,
+            'baseCurveUprightSpace':None,
+            'offsetCurveType':'sphere',
+            'offsetCurveScale':5.0
         },
     'MultiFKComponent': {
             'name': 'defaultMultiFKComponent',
@@ -297,6 +309,13 @@ class BasicComponent(object):
         self._orientOffset = None
         self._useCustomCurve=useCustomCurve
 
+        if mainControlData is not None:
+            self.logger.debug('Custom curve data detected')
+            self._mainControlData = mainControlData
+        else:
+            self.logger.debug('No curve data detected, setting to none')
+            self._mainControlData = [None, None, None, None, None]
+
         # These will be overriden when parent() is called
         # But we want them to have a value to determine if its none or not
         self._parentSpace = parentSpace
@@ -316,7 +335,7 @@ class BasicComponent(object):
         self._mainControlType = ControlCurve(curveType=mainControlType,
                                              scale=mainControlScale,
                                              color=mainControlColor,
-                                             curveData=mainControlData)
+                                             curveData=self._mainControlData[0])
 
         # Grab references to any existing utility nodes
         if utilityNodes:
@@ -557,6 +576,21 @@ class BasicComponent(object):
     def _createMainControl(self):
         self._mainControl = self._mainControlType.create(upVector=[0,1,0], name=self.name+'_main')
 
+    def _getCurveData(self, control):
+        try:
+            curveInfo = controltools.get_curve_info(control.getShapes())
+
+            curveData = []
+            for curve in curveInfo:
+                data = {}
+                data['cvs'] = curve.cvs
+                data['knots'] = curve.knots
+                data['degree'] = curve.degree
+                curveData.append(data)
+
+            return curveData
+        except AttributeError:
+            return None
 
     #### Public Properties ####
 
@@ -589,10 +623,7 @@ class BasicComponent(object):
         arguments['type'] = self.__class__.__name__
         arguments['utilityNodes'] = {name: node.name() for name, node in self._utilityNodes.iteritems()}
 
-        if self._useCustomCurve:
-            arguments['mainControlData'] = self.controlCurveData
-        else:
-            arguments['mainControlData'] = None
+        arguments['mainControlData'] = self.controlCurveData
 
         return arguments
 
@@ -666,17 +697,8 @@ class BasicComponent(object):
     @property
     def controlCurveData(self):
         # Grab a list of the cv data for the main curve
-        curveInfo = controltools.get_curve_info(self._mainControl.getShapes())
+        return [self._getCurveData(self._mainControl)]
 
-        curveData = []
-        for curve in curveInfo:
-            data = {}
-            data['cvs'] = curve.cvs
-            data['knots'] = curve.knots
-            data['degree'] = curve.degree
-            curveData.append(data)
-
-        return curveData
 
 class Rig(object):
     '''
@@ -843,12 +865,6 @@ class Rig(object):
 
     def removeComponent(self, id):
 
-        # Try to remove the selected component
-        try:
-            self._components[id].remove()
-        except KeyError:
-            pass
-
         # Remove the component from the component dictionary
         del self._componentData[id]
 
@@ -934,8 +950,9 @@ class Rig(object):
         sceneData = {}
 
         for id, component in self._components.iteritems():
-            sceneData[id] = {}
-            sceneData[id]['mainControlData'] = component.controlCurveData
+            if component.matrixOutput:
+                sceneData[id] = {}
+                sceneData[id]['mainControlData'] = component.controlCurveData
 
         return sceneData
 
@@ -1049,20 +1066,24 @@ class FKComponent(BasicComponent):
         '''
 
         # Create the main control curve
-        self._mainControl = self._mainControlType.create(upVector=[1,0,0], name=self.name+'_main')
+        if self._mainControlData[0] is None or not self._useCustomCurve:
+            self._mainControl = self._mainControlType.create(upVector=[1,0,0], name=self.name+'_main')
+        else:
+            self._mainControl = self._mainControlType.create(upVector=[0,1,0], name=self.name + '_main')
 
-        # Grab the orientation of the target
-        jointRotation = self.target.getRotation(space='world', quaternion=True)
+        if self._mainControlData[0] is None or not self._useCustomCurve:
+            # Grab the orientation of the target
+            jointRotation = self.target.getRotation(space='world', quaternion=True)
 
-        # Grab the orientation of the aimed buffer
-        aimRotation = self._outputOrient.getRotation(space='world', quaternion=True)
+            # Grab the orientation of the aimed buffer
+            aimRotation = self._outputOrient.getRotation(space='world', quaternion=True)
 
-        # Calculate the difference between the two orientationse
-        difference = aimRotation * jointRotation.invertIt()
+            # Calculate the difference between the two orientationse
+            difference = aimRotation * jointRotation.invertIt()
 
-        # Rotate the control by that difference then freeze the rotation
-        self._mainControl.rotateBy(difference)
-        pmc.makeIdentity(self._mainControl, apply=True, rotate=True, translate=False, scale=False, jointOrient=False)
+            # Rotate the control by that difference then freeze the rotation
+            self._mainControl.rotateBy(difference)
+            pmc.makeIdentity(self._mainControl, apply=True, rotate=True, translate=False, scale=False, jointOrient=False)
 
         # Create a control output group, this will allow for offset transformations from the control (such as aiming)
         self._mainControlOutput = pmc.group(empty=True)
@@ -1395,6 +1416,7 @@ class MultiFKComponent(FKComponent):
                                                mainControlType=self._mainControlType.curveType,
                                                mainControlScale=self._mainControlScale,
                                                mainControlColor=self._mainControlColor,
+                                               mainControlData=self._mainControlData,
                                                isLeafJoint=self._isLeafJoint
                                                ))
 
@@ -1410,6 +1432,7 @@ class MultiFKComponent(FKComponent):
                                                      mainControlType=self._mainControlType.curveType,
                                                      mainControlScale=self._mainControlScale,
                                                      mainControlColor=self._mainControlColor,
+                                                     mainControlData=self._mainControlData,
                                                     isLeafJoint=self._isLeafJoint
                                                      ))
 
@@ -1423,6 +1446,7 @@ class MultiFKComponent(FKComponent):
                                                  mainControlType=self._mainControlType.curveType,
                                                  mainControlScale=self._mainControlScale,
                                                  mainControlColor=self._mainControlColor,
+                                                 mainControlData=self._mainControlData,
                                                  isLeafJoint=self._isLeafJoint
                                                  ))
 
@@ -1536,35 +1560,43 @@ class IKComponent(MultiFKComponent):
     A multiFK Component in which all controls are parented to an ik chain.
     '''
 
-    def __init__(self, noFlipKnee=False, poleControlCurveType='triangle', fkOffsetCurveType='sphere', **kwargs):
+    def __init__(self, noFlipKnee=False, poleCurveType='triangle', poleCurveScale = 5.0,
+                 baseCurveType='cube', baseCurveScale=10.0, baseCurveParentSpace=None, baseCurveUprightSpace=None,
+                 offsetCurveType='sphere', offsetCurveScale=5.0, **kwargs):
 
         # Store the IK variables
         self._noFlipKnee = noFlipKnee
-        self._fkOffsetCurveType = fkOffsetCurveType
+        self._offsetCurveType = offsetCurveType
+        self._offsetCurveScale = offsetCurveScale
+        self._baseCurveParentSpace = baseCurveParentSpace
+        self._baseCurveUprightSpace = baseCurveUprightSpace
 
         # Create the multifk components
         MultiFKComponent.__init__(self, **kwargs)
 
         # Create the control curve instance for the pole vector
-        self._poleControlCurveType = ControlCurve(curveType=poleControlCurveType,
+        self._poleControlCurveType = ControlCurve(curveType=poleCurveType,
                                                   color=self._mainControlColor,
-                                                  scale=5.0)
+                                                  curveData=self._mainControlData[1],
+                                                  scale=poleCurveScale)
 
         # Create a component for the ik handle
         self.ikComponent = BasicComponent(name=self.name + '_IKControl',
                                                  target=self._deformTargets[self.endIndex],
-                                                 spaceSwitchEnabled= True,
+                                                 spaceSwitchEnabled= self.spaceSwitchEnabled,
                                                  mainControlType=self._mainControlType.curveType,
                                                  mainControlScale=self._mainControlScale,
-                                                 mainControlColor=self._mainControlColor)
+                                                 mainControlColor=self._mainControlColor,
+                                                 mainControlData=[self._mainControlData[0]])
 
         # Create a component for the base controller
         self.baseComponent = BasicComponent(name=self.name + '_IKControl',
                                                  target=self._deformTargets[self.startIndex],
-                                                 spaceSwitchEnabled= True,
-                                                 mainControlType=self._mainControlType.curveType,
-                                                 mainControlScale=self._mainControlScale,
-                                                 mainControlColor=self._mainControlColor)
+                                                 spaceSwitchEnabled= self.spaceSwitchEnabled,
+                                                 mainControlType=baseCurveType,
+                                                 mainControlScale=baseCurveScale,
+                                                 mainControlColor=self._mainControlColor,
+                                                 mainControlData=[self._mainControlData[2]])
 
     #### public methods ####
 
@@ -1606,8 +1638,8 @@ class IKComponent(MultiFKComponent):
         # Parent the ikComponent
         self.ikComponent.parent(components, parentComponent, uprightComponent)
 
-        #Parent the base components
-        self.baseComponent.parent(components, parentComponent, uprightComponent)
+        #Parent the base component
+        self.baseComponent.parent(components, self._baseCurveParentSpace, self._baseCurveUprightSpace)
 
     def snap(self):
 
@@ -1648,9 +1680,10 @@ class IKComponent(MultiFKComponent):
                                                  stretchTarget=None,
                                                  stretchEnabled=False,
                                                  squashEnabled=False,
-                                                 mainControlType=self._fkOffsetCurveType,
-                                                 mainControlScale=5.0,
+                                                 mainControlType=self._offsetCurveType,
+                                                 mainControlScale=self._offsetCurveScale,
                                                  mainControlColor=self._mainControlColor,
+                                                 mainControlData=[self._mainControlData[3]],
                                                  isLeafJoint=self._isLeafJoint
                                                  ))
 
@@ -1663,9 +1696,10 @@ class IKComponent(MultiFKComponent):
                                                      stretchTarget=self._childComponents[index - 1],
                                                      stretchEnabled=self._squashEnabled,
                                                      squashEnabled=self._stretchEnabled,
-                                                     mainControlType=self._fkOffsetCurveType,
-                                                     mainControlScale=5.0,
+                                                     mainControlType=self._offsetCurveType,
+                                                     mainControlScale=self._offsetCurveScale,
                                                      mainControlColor=self._mainControlColor,
+                                                     mainControlData=[self._mainControlData[3]],
                                                      isLeafJoint=self._isLeafJoint
                                                      ))
 
@@ -1676,9 +1710,10 @@ class IKComponent(MultiFKComponent):
                                                  stretchTarget=self._childComponents[self.endIndex - 1],
                                                  stretchEnabled=self._squashEnabled,
                                                  squashEnabled=self._stretchEnabled,
-                                                 mainControlType=self._fkOffsetCurveType,
-                                                 mainControlScale=5.0,
+                                                 mainControlType=self._offsetCurveType,
+                                                 mainControlScale=self._offsetCurveScale,
                                                  mainControlColor=self._mainControlColor,
+                                                 mainControlData=[self._mainControlData[3]],
                                                  isLeafJoint=self._isLeafJoint
                                                  ))
 
@@ -1823,6 +1858,14 @@ class IKComponent(MultiFKComponent):
         return self._deformTargets
 
     @property
+    def matrixOutput(self):
+        return self.ikComponent.matrixOutput
+
+    @property
+    def worldSpaceMatrix(self):
+        return self.ikComponent.worldSpaceMatrix
+
+    @property
     def ready(self):
         error = None
 
@@ -1831,16 +1874,28 @@ class IKComponent(MultiFKComponent):
 
         return error
 
+    @property
+    def controlCurveData(self):
+        # Grab a list of the cv data for the main curve
+        try:
+            poleControl = self._poleControl
+        except AttributeError:
+            poleControl = None
+        return [self._getCurveData(self._mainControl), self._getCurveData(poleControl),
+                self._getCurveData(self.baseComponent.matrixOutput), self._getCurveData(self._childComponents[0])]
+
 class SpineIKComponent(MultiFKComponent):
     '''
     A Modified series of FK components built to emulate the behavior
     of a spline IK setup
     '''
 
-    def __init__(self, spineControlType='default', secondaryParentSpace=None, secondaryUprightSpace=None, **kwargs):
+    def __init__(self, spineControlScale=15, spineControlType='default',
+                 secondaryParentSpace=None, secondaryUprightSpace=None, **kwargs):
 
         # Set up initial variables
         self._spineControlType = spineControlType
+        self._spineControlScale = spineControlScale
         self._secondaryParentSpace = secondaryParentSpace
         self._secondaryUprightSpace = secondaryUprightSpace
 
@@ -1866,6 +1921,7 @@ class SpineIKComponent(MultiFKComponent):
                                                  mainControlType=self._mainControlType.curveType,
                                                  mainControlScale=self._mainControlScale,
                                                  mainControlColor=self._mainControlColor,
+                                                 mainControlData=[self._mainControlData[0]],
                                                  isLeafJoint=self._isLeafJoint,
                                                  aimAtChild=False
                                                  ))
@@ -1881,8 +1937,9 @@ class SpineIKComponent(MultiFKComponent):
                                                      stretchEnabled=self._squashEnabled,
                                                      squashEnabled=self._stretchEnabled,
                                                      mainControlType=self._spineControlType,
-                                                     mainControlScale=self._mainControlScale,
+                                                     mainControlScale=self._spineControlScale,
                                                      mainControlColor=self._mainControlColor,
+                                                     mainControlData=[self._mainControlData[2]],
                                                      isLeafJoint=self._isLeafJoint,
                                                      aimAtChild=False
                                                      ))
@@ -1897,6 +1954,7 @@ class SpineIKComponent(MultiFKComponent):
                                                  mainControlType=self._mainControlType.curveType,
                                                  mainControlScale=self._mainControlScale,
                                                  mainControlColor=self._mainControlColor,
+                                                 mainControlData=[self._mainControlData[1]],
                                                  isLeafJoint=self._isLeafJoint,
                                                  aimAtChild=False
                                                  ))
@@ -2030,6 +2088,21 @@ class SpineIKComponent(MultiFKComponent):
 
         return error
 
+    @property
+    def matrixOutput(self):
+        return self.endComponent.matrixOutput
+
+    @property
+    def worldSpaceMatrix(self):
+        return self.endComponent.worldSpaceMatrix
+
+    @property
+    def controlCurveData(self):
+        # Grab a list of the cv data for the main curve
+        return [self._getCurveData(self.baseComponent.matrixOutput),
+                self._getCurveData(self.endComponent.matrixOutput),
+                self._getCurveData(self._childComponents[1].matrixOutput)]
+
 class LegIKComponent(IKComponent):
 
     def __init__(self, **kwargs):
@@ -2048,8 +2121,9 @@ class LegIKComponent(IKComponent):
                                                  stretchTarget=None,
                                                  stretchEnabled=False,
                                                  squashEnabled=False,
-                                                 mainControlType=self._fkOffsetCurveType,
-                                                 mainControlScale=5.0,
+                                                 mainControlType=self._offsetCurveType,
+                                                 mainControlScale=self._offsetCurveScale,
+                                                 mainControlData=self._mainControlData[3],
                                                  mainControlColor=self._mainControlColor,
                                                  isLeafJoint=self._isLeafJoint
                                                  ))
@@ -2063,9 +2137,10 @@ class LegIKComponent(IKComponent):
                                                      stretchTarget=self._childComponents[index - 1],
                                                      stretchEnabled=self._squashEnabled,
                                                      squashEnabled=self._stretchEnabled,
-                                                     mainControlType=self._fkOffsetCurveType,
-                                                     mainControlScale=5.0,
+                                                     mainControlType=self._offsetCurveType,
+                                                     mainControlScale=self._offsetCurveScale,
                                                      mainControlColor=self._mainControlColor,
+                                                     mainControlData=self._mainControlData[3],
                                                      isLeafJoint=self._isLeafJoint
                                                      ))
 
@@ -2076,8 +2151,9 @@ class LegIKComponent(IKComponent):
                                                  stretchTarget=self._childComponents[self.endIndex - 1],
                                                  stretchEnabled=self._squashEnabled,
                                                  squashEnabled=self._stretchEnabled,
-                                                 mainControlType=self._fkOffsetCurveType,
-                                                 mainControlScale=5.0,
+                                                 mainControlType=self._offsetCurveType,
+                                                 mainControlData=self._mainControlData[3],
+                                                 mainControlScale=self._offsetCurveScale,
                                                  mainControlColor=self._mainControlColor,
                                                  isLeafJoint=self._isLeafJoint
                                                  ))
