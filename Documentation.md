@@ -19,9 +19,9 @@ Rigs can be saved as .json files in the tool's file menu. The default save locat
 
 #### Squash and Stretch
 All multi-target components support squash and stretch. However, it is recomended you do so via leaf joints. With a leaf joint setup, each joint bound to the skin cluster does not have any children. This way when they are stretched, there are no space issues with the joints below it. This is also the recomended setup for exporting to game engines. There is a script included with this tool that will convert a bound skeleton to one set up with leaf joints. The tool can be run with:
-'''
+```
 import leafJointGenerator; leafJointGenerator.generate(*your skeleton*)
-'''
+```
 
 ## Components
 Components represent a self contained part of the rig. By design, a component should be as decoupled from other components as possible. A component should not be confused with a control or a body part, a component can consist of one or many of those. An example of a component is an IK chain for a foot or arm. The pole vector control for the chain however would not be it own component, in concept it is tightly coupled to the chain and as such should be a part of the IK component.
