@@ -25,7 +25,26 @@ import fossil_main; fossil_main.load()
 ```
 The main window should then appear. You can then use this code to create your own shelf button. A custom icon for adding to a shelf is available in `icon/icon-logoShelf.svg`
 
-## How To Use
+## Features
+
+At this time, fossil support the following features:
+* Rig saving/loading
+* Rig baking to existing animation
+* 7 components including:
+  * IK component with FK offsets and squash and stretch
+  * Spine IK Component with FK offsets
+  * Leg IK Component featuring a reverse foot roll
+* Global scale control
+* Component naming
+* Control curve generation with
+  * Custom base size
+  * Choice of shape preset
+  * Optional control curve editing and saving
+* Keyable space switching for every component
+* Squash and Stretch for multi-target components with:
+  * Individual stretch and squash control
+  * Leaf joint support
+
 For a detailed description of how the tool works, consult the [documentation](https://github.com/obriencole11/fossil/blob/master/Documentation.md).
 
 ## License
