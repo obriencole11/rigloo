@@ -178,7 +178,7 @@ class ModelController(ui.ViewController):
         # This will tell the model to switch the active rig
         self._loadViewData()
         self._currentRig = rigName
-        self.logger.debug('Active rig switched to %s', rigName)
+        self.logger.debug('Active rig switched to %s ', rigName)
         self._refreshView()
 
     @Slot()

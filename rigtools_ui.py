@@ -1128,7 +1128,7 @@ class ComponentWidget(QtWidgets.QWidget):
     @property
     def value(self):
 
-        #self.logger.debug('Generating data for %s', self.name)
+        self.logger.debug('Generating data for %s', self.name)
 
         # Create a dictionary to reconstruct data
         data = {}
@@ -1136,11 +1136,12 @@ class ComponentWidget(QtWidgets.QWidget):
         # Iterate through widgets and grab their values
         for key, widget in self.arguments.iteritems():
             try:
-                if data[key] is not None:
-                    data[key] = self.argumentWidgets[key].value
+                value = self.argumentWidgets[key].value
             except KeyError:
                 self.logger.info('Value for %s not found, using original value instead', key)
-                data[key] = self.arguments[key]
+                value = self.arguments[key]
+
+            data[key] = value
         data['hidden'] = self.hidden
         data['enabled'] = self.enabled
 

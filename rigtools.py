@@ -699,7 +699,6 @@ class BasicComponent(object):
         # Grab a list of the cv data for the main curve
         return [self._getCurveData(self._mainControl)]
 
-
 class Rig(object):
     '''
     An object for building components from a set of component data.
@@ -950,9 +949,8 @@ class Rig(object):
         sceneData = {}
 
         for id, component in self._components.iteritems():
-            if component.matrixOutput:
-                sceneData[id] = {}
-                sceneData[id]['mainControlData'] = component.controlCurveData
+            sceneData[id] = {}
+            sceneData[id]['mainControlData'] = component.controlCurveData
 
         return sceneData
 
@@ -1342,7 +1340,12 @@ class FKComponent(BasicComponent):
     @property
     def targets(self):
         # Returns a list of all targets this component effects
-        return [self._target]
+        list = [self._target]
+
+        if self._isLeafJoint:
+            list.append(self._target.getParent())
+
+        return list
 
     @property
     def stretchEnabled(self):
