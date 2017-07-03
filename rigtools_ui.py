@@ -49,6 +49,9 @@ class BaseController(QtCore.QObject):
         # Set the default value for the bakeMode
         self._bakeMode = False
 
+        # Set a simple state value for whether the rig is built
+        self._currentRigBuilt = False
+
 
     ##### View Slots #####
 
@@ -337,8 +340,6 @@ class TestViewController(ViewController):
                 'hidden': True
             }
 
-        print component['index']
-
         self._componentData[id] = component
 
         self._refreshView()
@@ -371,8 +372,6 @@ class TestViewController(ViewController):
         self.onNewRig.emit()
         self._refreshView()
 
-        print self.rigs
-
     @Slot(str)
     def loadRig(self, directory):
         # Tells the model to load the specified rig
@@ -385,15 +384,14 @@ class TestViewController(ViewController):
         self.onNewRig.emit()
         self._refreshView()
 
-        print self.rigs
 
     @Slot()
     def saveRig(self):
         # Saves the active rig to the model's data
-        logger.info('TextViewController: saveRig Signal received.')
+        self.logger.info('TextViewController: saveRig Signal received.')
 
         self.rigs['defaultRig'] = self._componentData
-        print self.rigs
+
 
     @Slot()
     def buildRig(self):
@@ -1009,7 +1007,7 @@ class ComponentWidget(QtWidgets.QWidget):
 
         # Try to add a maya icon to the button
         basePath = os.path.dirname(os.path.realpath(__file__))
-        print basePath
+
         try:
             icon = QtGui.QIcon(basePath + self.componentTypeData[self.arguments['type']]['icon'])
         except KeyError:
@@ -1432,7 +1430,6 @@ class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
 
     @property
     def value(self):
-        print [spinBox.value() for spinBox in self.spinBoxes]
         return [spinBox.value() for spinBox in self.spinBoxes]
 
     @value.setter

@@ -91,7 +91,7 @@ COMPONENT_TYPES = {
     },
     'LegIKComponent': {
             'name': 'defaultIKComponent',
-            'type': 'IKComponent',
+            'type': 'LegIKComponent',
             'mainControlType': 'cube',
             'mainControlScale': 10.0,
             'deformTargets': [],
@@ -580,7 +580,8 @@ class BasicComponent(object):
         self._mainControl = self._mainControlType.create(upVector=[0,1,0], name=self.name+'_main')
 
     def _getCurveData(self, control):
-        try:
+
+        if control is not None:
             curveInfo = controltools.get_curve_info(control.getShapes())
 
             curveData = []
@@ -592,8 +593,7 @@ class BasicComponent(object):
                 curveData.append(data)
 
             return curveData
-        except AttributeError:
-            self.logger.debug('Unable to get curve data')
+        else:
             return None
 
     #### Public Properties ####
@@ -687,7 +687,7 @@ class BasicComponent(object):
     @property
     def targets(self):
         # Returns a list of all targets this component effects
-        return None
+        return []
 
     @property
     def ready(self):
@@ -701,11 +701,10 @@ class BasicComponent(object):
     @property
     def controlCurveData(self):
         # Grab a list of the cv data for the main curve
-        if self._mainControl is not None:
-            if self._mainControl.exists():
-                return [self._getCurveData(self._mainControl)]
-        else:
-            return None
+
+        self.logger.debug('Main Control found, collecting curve data')
+        return [self._getCurveData(self.matrixOutput)]
+
 
 class Rig(object):
     '''
@@ -828,6 +827,7 @@ class Rig(object):
         targetList = []
 
         for id, com in self._components.iteritems():
+            self.logger.debug('Adding targets for %s', str(com))
             targetList += com.targets
 
         if len(targetList) > 0:
@@ -957,14 +957,8 @@ class Rig(object):
         sceneData = {}
 
         for id, component in self._components.iteritems():
-            data = component.controlCurveData
-
-            if data:
-                sceneData[id] = {}
-                sceneData[id]['mainControlData'] = component.controlCurveData
-            else:
-                sceneData = None
-                break
+            sceneData[id] = {}
+            sceneData[id]['mainControlData'] = component.controlCurveData
 
         return sceneData
 
@@ -1604,7 +1598,8 @@ class IKComponent(MultiFKComponent):
                                                  mainControlType=self._mainControlType.curveType,
                                                  mainControlScale=self._mainControlScale,
                                                  mainControlColor=self._mainControlColor,
-                                                 mainControlData=[self._mainControlData[0]])
+                                                 mainControlData=[self._mainControlData[0]],
+                                                 useCustomCurve=self._useCustomCurve)
 
         # Create a component for the base controller
         self.baseComponent = BasicComponent(name=self.name + '_IKControl',
@@ -1613,7 +1608,8 @@ class IKComponent(MultiFKComponent):
                                                  mainControlType=baseCurveType,
                                                  mainControlScale=baseCurveScale,
                                                  mainControlColor=self._mainControlColor,
-                                                 mainControlData=[self._mainControlData[2]])
+                                                 mainControlData=[self._mainControlData[2]],
+                                                 useCustomCurve=self._useCustomCurve)
 
     #### public methods ####
 
@@ -1656,7 +1652,7 @@ class IKComponent(MultiFKComponent):
         self.ikComponent.parent(components, parentComponent, uprightComponent)
 
         #Parent the base component
-        self.baseComponent.parent(components, self._baseCurveParentSpace, self._baseCurveUprightSpace)
+        self.baseComponent.parent(components, parentComponent, uprightComponent)
 
     def snap(self):
 
@@ -1894,12 +1890,15 @@ class IKComponent(MultiFKComponent):
     @property
     def controlCurveData(self):
         # Grab a list of the cv data for the main curve
+
         try:
             poleControl = self._poleControl
         except AttributeError:
             poleControl = None
-        return [self._getCurveData(self._mainControl), self._getCurveData(poleControl),
-                self._getCurveData(self.baseComponent.matrixOutput), self._getCurveData(self._childComponents[0])]
+
+        return [self._getCurveData(self.ikComponent.matrixOutput), self._getCurveData(poleControl),
+                self._getCurveData(self.baseComponent.matrixOutput),
+                self._getCurveData(self._childComponents[1].matrixOutput)]
 
 class SpineIKComponent(MultiFKComponent):
     '''
@@ -1935,6 +1934,7 @@ class SpineIKComponent(MultiFKComponent):
                                                  stretchTarget=None,
                                                  stretchEnabled=False,
                                                  squashEnabled=False,
+                                                 useCustomCurve=self._useCustomCurve,
                                                  mainControlType=self._mainControlType.curveType,
                                                  mainControlScale=self._mainControlScale,
                                                  mainControlColor=self._mainControlColor,
@@ -1958,6 +1958,7 @@ class SpineIKComponent(MultiFKComponent):
                                                      mainControlColor=self._mainControlColor,
                                                      mainControlData=[self._mainControlData[2]],
                                                      isLeafJoint=self._isLeafJoint,
+                                                     useCustomCurve=self._useCustomCurve,
                                                      aimAtChild=False
                                                      ))
 
@@ -1971,6 +1972,7 @@ class SpineIKComponent(MultiFKComponent):
                                                  mainControlType=self._mainControlType.curveType,
                                                  mainControlScale=self._mainControlScale,
                                                  mainControlColor=self._mainControlColor,
+                                                 useCustomCurve=self._useCustomCurve,
                                                  mainControlData=[self._mainControlData[1]],
                                                  isLeafJoint=self._isLeafJoint,
                                                  aimAtChild=False
@@ -2116,6 +2118,8 @@ class SpineIKComponent(MultiFKComponent):
     @property
     def controlCurveData(self):
         # Grab a list of the cv data for the main curve
+
+        self.logger.debug('Main Control found, collecting curve data')
         return [self._getCurveData(self.baseComponent.matrixOutput),
                 self._getCurveData(self.endComponent.matrixOutput),
                 self._getCurveData(self._childComponents[1].matrixOutput)]
@@ -2140,9 +2144,10 @@ class LegIKComponent(IKComponent):
                                                  squashEnabled=False,
                                                  mainControlType=self._offsetCurveType,
                                                  mainControlScale=self._offsetCurveScale,
-                                                 mainControlData=self._mainControlData[3],
+                                                 mainControlData=[self._mainControlData[3]],
                                                  mainControlColor=self._mainControlColor,
-                                                 isLeafJoint=self._isLeafJoint
+                                                 isLeafJoint=self._isLeafJoint,
+                                                 useCustomCurve=self._useCustomCurve
                                                  ))
 
         # Create a child component for each middle component
@@ -2157,8 +2162,9 @@ class LegIKComponent(IKComponent):
                                                      mainControlType=self._offsetCurveType,
                                                      mainControlScale=self._offsetCurveScale,
                                                      mainControlColor=self._mainControlColor,
-                                                     mainControlData=self._mainControlData[3],
-                                                     isLeafJoint=self._isLeafJoint
+                                                     mainControlData=[self._mainControlData[3]],
+                                                     isLeafJoint=self._isLeafJoint,
+                                                     useCustomCurve=self._useCustomCurve
                                                      ))
 
         # Create a child component for the endJoint
@@ -2169,10 +2175,11 @@ class LegIKComponent(IKComponent):
                                                  stretchEnabled=self._squashEnabled,
                                                  squashEnabled=self._stretchEnabled,
                                                  mainControlType=self._offsetCurveType,
-                                                 mainControlData=self._mainControlData[3],
+                                                 mainControlData=[self._mainControlData[3]],
                                                  mainControlScale=self._offsetCurveScale,
                                                  mainControlColor=self._mainControlColor,
-                                                 isLeafJoint=self._isLeafJoint
+                                                 isLeafJoint=self._isLeafJoint,
+                                                 useCustomCurve=self._useCustomCurve
                                                  ))
 
     def _createIKChain(self):
@@ -2510,12 +2517,9 @@ class RigToolsModel(object):
 
         rigSceneData = self._activeRigs[rigName].sceneData
 
-        if rigSceneData is not None:
-            self.logger.debug('Scene data accepted, data: %s ',str(rigSceneData))
-            for id, data in rigSceneData.iteritems():
-                self.setComponentValue(rigName, id, 'mainControlData', data['mainControlData'])
-        else:
-            self.logger.debug('Scene data is None, ignoring')
+        self.logger.debug('Scene data accepted, data: %s ',str(rigSceneData))
+        for id, data in rigSceneData.iteritems():
+            self.setComponentValue(rigName, id, 'mainControlData', data['mainControlData'])
 
     @property
     def data(self):

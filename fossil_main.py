@@ -22,6 +22,7 @@ class ModelController(ui.ViewController):
 
         try:
             self._currentRig = self._model.activeRigs[0]
+            self._currentRigBuilt = True
             self.logger.debug('Found an active rig in the model, setting it as the current rig')
             self.onNewRig.emit()
             self._refreshView()
@@ -96,6 +97,7 @@ class ModelController(ui.ViewController):
         self._currentRig = self._model.createRig()
         self.onNewRig.emit()
         self._refreshView()
+        self._currentRigBuilt = False
 
     @Slot(str)
     def loadRig(self, directory):
@@ -103,6 +105,7 @@ class ModelController(ui.ViewController):
         # tells the view to show the componentData and refresh the components
         self.logger.debug('Loading a rig from %s', directory)
         self._currentRig = self._model.loadRig(directory)
+        self._currentRigBuilt = False
         self.onNewRig.emit()
         self._refreshView()
 
@@ -138,6 +141,8 @@ class ModelController(ui.ViewController):
         # Then remove the rig from fileInfo
         self._model.clearCache(self._currentRig)
 
+        self._currentRigBuilt = False
+
     @Slot()
     def previewRig(self):
 
@@ -145,10 +150,16 @@ class ModelController(ui.ViewController):
             self.logger.debug('Rig is ready to build, refreshing the rig')
 
             # Remove the rig
-            self.removeRig()
+            if self._currentRigBuilt:
+                self.logger.debug('Rig is built, removing')
+                self.removeRig()
+            else:
+                self.logger.debug('Rig is not built, skipping remove')
 
             # Then build the rig
             self._model.buildRig(self._currentRig)
+
+            self._currentRigBuilt = True
 
         else:
             self.logger.debug('showing error')
@@ -177,6 +188,7 @@ class ModelController(ui.ViewController):
     def switchActiveRig(self, rigName):
         # This will tell the model to switch the active rig
         self._loadViewData()
+        self.removePreview()
         self._currentRig = rigName
         self.logger.debug('Active rig switched to %s ', rigName)
         self._refreshView()
@@ -186,10 +198,15 @@ class ModelController(ui.ViewController):
         # This removes the rig, but only when previewed
         # This is useful for when the window closes
         self.logger.debug('Removing the preview')
-        self._model.loadSceneData()
+
+        if self._currentRigBuilt:
+            self.logger.debug('Rig is built, grabbing scene data')
+            self._model.loadSceneData(self._currentRig)
         self._model.removePreview(self._currentRig)
+        self._currentRigBuilt = False
 
     #### Private Methods ####
+
 
     def _refreshView(self):
         # Update the view's componentData
@@ -202,8 +219,10 @@ class ModelController(ui.ViewController):
 
     def _loadViewData(self):
         # Update the model with new data from the view
+
         for id, componentData in self._window.data.iteritems():
             self.setComponentValue(id, componentData)
+
 
     ##### private properties #####
 
