@@ -884,7 +884,11 @@ class Rig(object):
     def setComponent(self, id, attr, value):
 
         # Set the attribute in the component data
-        self._componentData[id][attr] = value
+        try:
+            self._componentData[id][attr] = value
+        except KeyError:
+            self.logger.info('Trying to set a component value, but component no longer exists. Ignoring.')
+            pass
 
     def getComponent(self, id):
         '''
