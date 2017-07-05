@@ -136,7 +136,7 @@ class ModelController(ui.ViewController):
         self._refreshView()
 
         # Try to remove the current rig
-        self._model.removeRig(self._currentRig)
+        self._model.removeRig(self._currentRig, bakeMode=self.bakeMode)
 
         # Then remove the rig from fileInfo
         self._model.clearCache(self._currentRig)

@@ -705,7 +705,6 @@ class BasicComponent(object):
         self.logger.debug('Main Control found, collecting curve data')
         return [self._getCurveData(self.matrixOutput)]
 
-
 class Rig(object):
     '''
     An object for building components from a set of component data.
@@ -823,7 +822,7 @@ class Rig(object):
                 com.bake(frame)
         pmc.setCurrentTime(0)
 
-    def unbind(self):
+    def unbind(self, bake=False):
         targetList = []
 
         for id, com in self._components.iteritems():
@@ -831,8 +830,15 @@ class Rig(object):
             targetList += com.targets
 
         if len(targetList) > 0:
-            frameRange = int(pmc.playbackOptions(query=True, aet=True))
-            pmc.bakeSimulation(targetList, t=(0, frameRange), hi='none')
+
+            if bake:
+                frameRange = int(pmc.playbackOptions(query=True, aet=True))
+                pmc.bakeResults(targetList, t=(0, frameRange), hi='none', simulation=True)
+
+            for target in targetList:
+                pmc.disconnectAttr(target.translate)
+                pmc.disconnectAttr(target.rotate)
+                pmc.disconnectAttr(target.scale)
 
     def remove(self):
 
@@ -1035,18 +1041,13 @@ class FKComponent(BasicComponent):
             children.remove(self._target)
 
         # If theres just one real child, aim at that
+
         if len(children) == 1:
-            constraint = pmc.aimConstraint(children[0],
-                                           self._outputOrient,
-                                           aimVector=self._aimAxis, mo=False)
+            self._aimAtTarget(self._outputOrient, children[0], upObject=self.target.getParent())
+
         # Otherwise aim at the parent
         else:
-            constraint = pmc.aimConstraint(self.target.getParent(),
-                                           self._outputOrient,
-                                           aimVector=self._inverseAxis, mo=False)
-
-
-        pmc.delete(constraint)
+            self._aimAtTarget(self._outputOrient, self.target.getParent())
 
     def _connectToOutput(self, input):
 
@@ -1187,6 +1188,40 @@ class FKComponent(BasicComponent):
         if self.squashEnabled:
             pmc.connectAttr(self._utilityNodes['inverseOutput'].outFloat, self._stretchTarget.stretchInput.scaleY, force=True)
             pmc.connectAttr(self._utilityNodes['inverseOutput'].outFloat, self._stretchTarget.stretchInput.scaleZ, force=True)
+
+    def _aimAtTarget(self, aimObject, targetObject, upObject=None):
+
+        # Get the direction to the targetObject
+        # This will be the x axis of the final vector
+        xVector = targetObject.getTranslation(worldSpace=True) - aimObject.getTranslation(worldSpace=True)
+        xVector.normalize()
+
+        # If there is an upObject specified, use that direction as the upVector
+        # Otherwise just use the world up
+        if upObject:
+            upDirection = upObject.getTranslation(worldSpace=True) - aimObject.getTranslation(worldSpace=True)
+            upDirection.normalize()
+        else:
+            upDirection = dt.VectorN(0,1,0)
+
+        # Use cross product to find the vector perpedicular to the xVector and upDirection
+        zVector = xVector.cross(upDirection)
+        zVector.normalize()
+
+        # Take another cross product to find the final y axis Vector
+        yVector = xVector.cross(zVector)
+        yVector.normalize()
+
+        # Create the aim Matrix
+        aimMatrix = dt.Matrix(xVector.x, xVector.y, xVector.z, 0.0,
+                              yVector.x, yVector.y, yVector.z, 0.0,
+                              zVector.x, zVector.y, zVector.z, 0.0,
+                              0.0, 0.0, 0.0, 1.0)
+
+        # Grab the rotation from that matrix
+        rotation = dt.TransformationMatrix(aimMatrix).eulerRotation()
+
+        aimObject.setRotation(rotation, worldSpace=True)
 
     #### public methods ####
 
@@ -1361,7 +1396,7 @@ class FKComponent(BasicComponent):
 
     @property
     def orientBuffer(self):
-        return self._outputBuffer
+        return self._outputOrient
 
     @property
     def squashEnabled(self):
@@ -1637,12 +1672,14 @@ class IKComponent(MultiFKComponent):
             child.build()
             pmc.parent(child.componentGroup, self._componentGroup)
 
-        # Create the ik chain
-        self._createIKChain()
 
         return self._componentGroup
 
     def parent(self, components, parentComponent, uprightComponent):
+
+
+        # Create the ik chain
+        self._createIKChain()
 
         # Parent each sub component to the corresponding joint
         for index in range(len(self._childComponents)):
@@ -2147,7 +2184,8 @@ class LegIKComponent(IKComponent):
                                                  mainControlData=[self._mainControlData[3]],
                                                  mainControlColor=self._mainControlColor,
                                                  isLeafJoint=self._isLeafJoint,
-                                                 useCustomCurve=self._useCustomCurve
+                                                 useCustomCurve=self._useCustomCurve,
+                                                 aimAtChild=True
                                                  ))
 
         # Create a child component for each middle component
@@ -2164,7 +2202,8 @@ class LegIKComponent(IKComponent):
                                                      mainControlColor=self._mainControlColor,
                                                      mainControlData=[self._mainControlData[3]],
                                                      isLeafJoint=self._isLeafJoint,
-                                                     useCustomCurve=self._useCustomCurve
+                                                     useCustomCurve=self._useCustomCurve,
+                                                     aimAtChild=True
                                                      ))
 
         # Create a child component for the endJoint
@@ -2179,7 +2218,8 @@ class LegIKComponent(IKComponent):
                                                  mainControlScale=self._offsetCurveScale,
                                                  mainControlColor=self._mainControlColor,
                                                  isLeafJoint=self._isLeafJoint,
-                                                 useCustomCurve=self._useCustomCurve
+                                                 useCustomCurve=self._useCustomCurve,
+                                                 aimAtChild=True
                                                  ))
 
     def _createIKChain(self):
@@ -2200,6 +2240,9 @@ class LegIKComponent(IKComponent):
         pmc.parent(self._handle, rollLocator)
 
     def parent(self, components, parentComponent, uprightComponent):
+
+        # Create the ik chain
+        self._createIKChain()
 
         # Parent each of the main sub components, to their corresponding space
         self._childComponents[0].parent(self.ikChainSpaces, self.ikChainSpaces[0], self.ikChainSpaces[0])
@@ -2453,10 +2496,10 @@ class RigToolsModel(object):
             frameRange = int(pmc.playbackOptions(query=True, aet=True))
             self._activeRigs[rigName].bake(frameRange=frameRange)
 
-    def removeRig(self, rigName):
+    def removeRig(self, rigName, bakeMode=False):
 
         if self.isActive(rigName):
-            self._activeRigs[rigName].unbind()
+            self._activeRigs[rigName].unbind(bake=bakeMode)
 
         # Remove the rig
         self._activeRigs[rigName].remove()
