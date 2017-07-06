@@ -509,6 +509,9 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     # These are sent to slots in widget this window creates
     onUpdateComponentWidgets = Signal(dict)
 
+    # This is sent to widgets to update their name list
+    onUpdateNameList = Signal(str, str)
+
     def __init__(self, parent=None):
         super(MainComponentWindow, self).__init__(parent=parent)
 
@@ -763,6 +766,8 @@ class MainComponentWindow(QtWidgets.QMainWindow):
             # Connect the widgets signals
             widget.onAddSelected.connect(self.onAddSelectedClicked)
             widget.onRemoveComponentClicked.connect(self.onRemoveComponentClicked)
+            self.onUpdateNameList.connect(widget.onUpdateNameList)
+            widget.onNameChanged.connect(self.onUpdateNameList)
 
             # Add the widget to the component widget dict
             self._componentWidgets.append(widget)
@@ -884,11 +889,13 @@ class ComponentWidget(QtWidgets.QWidget):
     # These alert the window to changes in the gui
     onAddSelected = Signal(str)
     onUpdateData = Signal(str, dict)
+    onNameChanged = Signal(str, str)
 
     # Widget Signals
     # These alert the ui to changes in the data
     onAddSelectedClicked = Signal()
     onRemoveComponentClicked = Signal(str)
+    onUpdateNameList = Signal(str, str)
 
     def __init__(self, name, componentData, parent, id, componentTypeData, controlTypeData, componentSettings, index):
         QtWidgets.QWidget.__init__(self)
@@ -966,8 +973,13 @@ class ComponentWidget(QtWidgets.QWidget):
             if groupBox:
                 groupLayout.addWidget(groupBox)
         
-
+        # Set any name changes to update the title
         self.argumentWidgets['name'].textChanged.connect(self._updateTitle)
+        self.argumentWidgets['name'].nameChanged.connect(self.onNameChanged)
+
+        for name, widget in self.argumentWidgets.iteritems():
+            if isinstance(widget, QRigComponentComboBox):
+                self.onUpdateNameList.connect(widget.onNameChanged)
 
         # Set the default state of visibility
         try:
@@ -1164,7 +1176,6 @@ class ComponentWidget(QtWidgets.QWidget):
     def enabled(self, value):
         self.title.setEnabled(value)
         self.iconLabel.setEnabled(value)
-
 
     ##### Slots #####
 
@@ -1401,11 +1412,23 @@ class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
 
     @value.setter
     def value(self, value):
-        if value is None:
-            self.setCurrentIndex(self.findText('world'))
-        else:
+
+        if value in [self.itemText(index) for index in range(self.count())]:
             self._id = value
             self.setCurrentIndex(self.findText(self.componentData[value]['name']))
+        else:
+            self.setCurrentIndex(self.findText('world'))
+
+    @Slot(str, str)
+    def onNameChanged(self, oldName, newName):
+
+        self.addItem(newName)
+
+        if self.currentText() == oldName:
+            self.setCurrentIndex(self.findText(newName))
+
+        self.removeItem(self.findText(oldName))
+
 
 class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
@@ -1471,6 +1494,9 @@ class QAxisWidget(QtWidgets.QComboBox, ComponentArgumentWidget):
                 break
 
 class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
+
+    nameChanged = Signal(str, str)
+
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
 
         QtWidgets.QLineEdit.__init__(self, parent)
@@ -1480,7 +1506,7 @@ class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
         self.oldText = ""
 
         # Alert the component widget when a value is changed
-        self.textChanged.connect(self.onValueChanged)
+        self.textChanged.connect(self.onTextChanged)
 
     @property
     def value(self):
@@ -1490,6 +1516,12 @@ class QNameWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
     def value(self, value):
         self.setText(value)
         self.oldText = value
+
+    @Slot()
+    def onTextChanged(self):
+        self.nameChanged.emit(self.oldText, self.text())
+        self.oldText = self.text()
+        self.onValueChanged.emit()
 
 class QScalarWidget(QtWidgets.QLineEdit, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
@@ -1583,6 +1615,33 @@ class QReadOnlyBoolWidget(QBoolWidget):
     def value(self, value):
         self.setChecked(value)
 
+class QColorWidget(QtWidgets.QPushButton, ComponentArgumentWidget):
+    def __init__(self, parent, componentData, componentTypeData, controlTypeData):
+
+        QtWidgets.QPushButton.__init__(self, parent)
+
+        ComponentArgumentWidget.__init__(self)
+
+        # Alert the component widget when a value is changed
+        self.clicked.connect(self.getColor)
+
+        self.color = None
+
+    @property
+    def value(self):
+        return self.color
+
+    @value.setter
+    def value(self, value):
+        self.color = value
+        self.setStyleSheet("QWidget { background-color: %s}" %
+                           QtGui.QColor.fromRgb(value[0]*255, value[1]*255, value[2]*255).name())
+
+    def getColor(self):
+        color = QtWidgets.QColorDialog.getColor()
+        self.color = [float(color.red())/255, float(color.green())/255, float(color.blue())/255]
+        self.setStyleSheet("QWidget { background-color: %s}" % color.name())
+
 
 ##############################
 #       UI Settings         #
@@ -1615,7 +1674,8 @@ COMPONENT_SETTINGS = {
     'aimControlType': QControlComboBox,
     'aimVector': QAxisWidget,
     'aimCurveDistance': QScalarWidget,
-    'useCustomCurve': QBoolWidget
+    'useCustomCurve': QBoolWidget,
+    'mainControlColor': QColorWidget
 }
 
 COMPONENT_SETTINGS_DEBUG = {

@@ -32,22 +32,24 @@ COMPONENT_TYPES = {
         'spaceSwitchEnabled': False,
         'useCustomCurve': False,
         'hidden': False,
-        'mainControlData': None
+        'mainControlData': None,
+        'mainControlColor': [0.0,0.0,1.0]
     },
     'ScaleComponent': {
-            'name': 'defaultScaleComponent',
-            'type': 'ScaleComponent',
-            'mainControlType': 'default',
-            'mainControlScale': 10.0,
-            'target': None,
-            'parentSpace': None,
-            'uprightSpace': None,
-            'icon': "/icons/icon-ScaleComponent.svg",
-            'enabled': True,
-            'spaceSwitchEnabled': False,
-            'useCustomCurve': False,
-            'mainControlData': None
-        },
+        'name': 'defaultScaleComponent',
+        'type': 'ScaleComponent',
+        'mainControlType': 'default',
+        'mainControlScale': 10.0,
+        'target': None,
+        'parentSpace': None,
+        'uprightSpace': None,
+        'icon': "/icons/icon-ScaleComponent.svg",
+        'enabled': True,
+        'spaceSwitchEnabled': False,
+        'useCustomCurve': False,
+        'mainControlData': None,
+        'mainControlColor': [0.0,0.0,1.0]
+    },
     'FKComponent': {
         'name': 'defaultFKComponent',
         'type': 'FKComponent',
@@ -61,7 +63,8 @@ COMPONENT_TYPES = {
         'spaceSwitchEnabled': False,
         'isLeafJoint': False,
         'useCustomCurve': False,
-        'mainControlData': None
+        'mainControlData': None,
+        'mainControlColor': [0.0,0.0,1.0]
     },
     'IKComponent': {
         'name': 'defaultIKComponent',
@@ -87,70 +90,74 @@ COMPONENT_TYPES = {
         'baseCurveParentSpace':None,
         'baseCurveUprightSpace':None,
         'offsetCurveType':'sphere',
-        'offsetCurveScale':5.0
+        'offsetCurveScale':5.0,
+        'mainControlColor': [0.0,0.0,1.0]
     },
     'LegIKComponent': {
-            'name': 'defaultIKComponent',
-            'type': 'LegIKComponent',
-            'mainControlType': 'cube',
-            'mainControlScale': 10.0,
-            'deformTargets': [],
-            'parentSpace': None,
-            'uprightSpace': None,
-            'stretchEnabled': False,
-            'squashEnabled': False,
-            'icon': "/icons/icon-IKComponent.svg",
-            'noFlipKnee': False,
-            'enabled': True,
-            'spaceSwitchEnabled': False,
-            'isLeafJoint': False,
-            'useCustomCurve': False,
-            'mainControlData': None,
-            'poleCurveType': 'triangle',
-            'poleCurveScale': 5.0,
-            'baseCurveType':'cube',
-            'baseCurveScale':10.0,
-            'baseCurveParentSpace':None,
-            'baseCurveUprightSpace':None,
-            'offsetCurveType':'sphere',
-            'offsetCurveScale':5.0
-        },
+        'name': 'defaultIKComponent',
+        'type': 'LegIKComponent',
+        'mainControlType': 'cube',
+        'mainControlScale': 10.0,
+        'deformTargets': [],
+        'parentSpace': None,
+        'uprightSpace': None,
+        'stretchEnabled': False,
+        'squashEnabled': False,
+        'icon': "/icons/icon-IKComponent.svg",
+        'noFlipKnee': False,
+        'enabled': True,
+        'spaceSwitchEnabled': False,
+        'isLeafJoint': False,
+        'useCustomCurve': False,
+        'mainControlData': None,
+        'poleCurveType': 'triangle',
+        'poleCurveScale': 5.0,
+        'baseCurveType':'cube',
+        'baseCurveScale':10.0,
+        'baseCurveParentSpace':None,
+        'baseCurveUprightSpace':None,
+        'offsetCurveType':'sphere',
+        'offsetCurveScale':5.0,
+        'mainControlColor': [0.0,0.0,1.0]
+    },
     'MultiFKComponent': {
-            'name': 'defaultMultiFKComponent',
-            'type': 'MultiFKComponent',
-            'mainControlType': 'default',
-            'mainControlScale': 10.0,
-            'deformTargets': [],
-            'parentSpace': None,
-            'uprightSpace': None,
-            'stretchEnabled': False,
-            'squashEnabled': False,
-            'icon': "/icons/icon-MultiFKComponent.svg",
-            'enabled': True,
-            'spaceSwitchEnabled': False,
-            'isLeafJoint': False,
-            'useCustomCurve': False,
-            'mainControlData': None
+        'name': 'defaultMultiFKComponent',
+        'type': 'MultiFKComponent',
+        'mainControlType': 'default',
+        'mainControlScale': 10.0,
+        'deformTargets': [],
+        'parentSpace': None,
+        'uprightSpace': None,
+        'stretchEnabled': False,
+        'squashEnabled': False,
+        'icon': "/icons/icon-MultiFKComponent.svg",
+        'enabled': True,
+        'spaceSwitchEnabled': False,
+        'isLeafJoint': False,
+        'useCustomCurve': False,
+        'mainControlData': None,
+        'mainControlColor': [0.0,0.0,1.0]
     },
     'SpineIKComponent': {
-            'name': 'defaultSpineIKComponent',
-            'type': 'SpineIKComponent',
-            'mainControlType': 'square',
-            'mainControlScale': 30.0,
-            'childControlType': 'default',
-            'childControlScale': 25.0,
-            'deformTargets': [],
-            'aimAxis': [1,0,0],
-            'parentSpace': None,
-            'uprightSpace': None,
-            'stretchEnabled': False,
-            'squashEnabled': False,
-            'icon': "/icons/icon-SpineIKComponent.svg",
-            'enabled': True,
-            'spaceSwitchEnabled': False,
-            'isLeafJoint': False,
-            'useCustomCurve': False,
-            'mainControlData': None
+        'name': 'defaultSpineIKComponent',
+        'type': 'SpineIKComponent',
+        'mainControlType': 'square',
+        'mainControlScale': 30.0,
+        'childControlType': 'default',
+        'childControlScale': 25.0,
+        'deformTargets': [],
+        'aimAxis': [1,0,0],
+        'parentSpace': None,
+        'uprightSpace': None,
+        'stretchEnabled': False,
+        'squashEnabled': False,
+        'icon': "/icons/icon-SpineIKComponent.svg",
+        'enabled': True,
+        'spaceSwitchEnabled': False,
+        'isLeafJoint': False,
+        'useCustomCurve': False,
+        'mainControlData': None,
+        'mainControlColor': [0.0,0.0,0.0,1.0]
     }
 }
 
@@ -187,12 +194,12 @@ class safeCreate(object):
 ##############################
 
 class ControlCurve():
-    def __init__(self, curveType='default', curveData=None, scale=1.0, color=dt.Color.blue):
+    def __init__(self, curveType='default', curveData=None, scale=1.0, color=[0.0,0.0,1.0]):
 
         self.curveData = curveData
         self.curveType = curveType
         self.scale = scale
-        self.color = color
+        self.color = dt.Color(color[0], color[1], color[2])
 
     def create(self, name='default', upVector=[1,0,0]):
 
@@ -217,7 +224,9 @@ class ControlCurve():
 
         # Set the override color of the curve
         shape = control.getShape()
-        shape.drawOverrideColor = self.color
+        pmc.setAttr(shape.overrideColorRGB, self.color)
+        pmc.setAttr(shape.overrideRGBColors, True)
+        pmc.setAttr(shape.overrideEnabled, True)
 
         return control
 
@@ -291,7 +300,7 @@ class BasicComponent(object):
     defaultControl = ControlCurve()
 
     def __init__(self, name='default', target=None, mainControlType='circle', parentSpace=None, uprightSpace=None,
-                 mainControlColor=dt.Color.blue, mainControlScale=10.0, spaceSwitchEnabled=False, utilityNodes=None,
+                 mainControlColor=[0.0,0.0,1.0], mainControlScale=10.0, spaceSwitchEnabled=False, utilityNodes=None,
                  mainControlData=None, useCustomCurve=False, **kwargs):
 
         # Set up a logger for the component
