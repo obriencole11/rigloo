@@ -1,6 +1,7 @@
 import pymel.core as pmc
 import pymel.core.datatypes as dt
 import controltools
+import riggingTools
 import os
 import json
 import uuid
@@ -10,9 +11,27 @@ import logging
 #          Logging           #
 ##############################
 
-logging.basicConfig(filename=os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'),
-                    format='%(levelname)s:%(name)s:%(message)s',
-                    level=logging.WARNING)
+file_handler = logging.FileHandler(os.path.join(os.environ['MAYA_APP_DIR'], 'fossil.log'))
+file_handler.setFormatter(logging.Formatter('%(asctime)s : %(name)s : %(levelname)s : %(message)s'))
+file_handler.setLevel(logging.DEBUG)
+
+LOGS = []
+
+def addLogger(name=__name__):
+    # Add a logger for the specified name
+    logger = logging.getLogger(name)
+
+    # Add the module file handler
+    logger.addHandler(file_handler)
+
+    # Add the logger to a list of logs
+    LOGS.append(logger)
+
+    return logger
+
+def setLogLevel(level):
+    for logger in LOGS:
+        logger.setLevel(level)
 
 ##############################
 #       Rig Settings         #
@@ -301,10 +320,12 @@ class BasicComponent(object):
 
     def __init__(self, name='default', target=None, mainControlType='circle', parentSpace=None, uprightSpace=None,
                  mainControlColor=[0.0,0.0,1.0], mainControlScale=10.0, spaceSwitchEnabled=False, utilityNodes=None,
-                 mainControlData=None, useCustomCurve=False, **kwargs):
+                 mainControlData=None, useCustomCurve=False, orientControlCurve=True, **kwargs):
 
         # Set up a logger for the component
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = addLogger(type(self).__name__)
+        #self.logger.setLevel(LOG_LEVEL)
+        #self.logger.addHandler(file_handler)
 
         # Set the standard variables
         self._name = name
@@ -317,6 +338,7 @@ class BasicComponent(object):
         self._orientToTarget = False
         self._orientOffset = None
         self._useCustomCurve=useCustomCurve
+        self._orientControlCurve = orientControlCurve
 
         if mainControlData is not None:
             self.logger.debug('Custom curve data detected: %s ', str(mainControlData))
@@ -406,7 +428,7 @@ class BasicComponent(object):
 
         if self.spaceSwitchEnabled:
             # Generate the names for the enums
-            comNames = [str(value.name) for key, value in components.iteritems() if value.name is not self._name]
+            comNames = [str(value.name) for key, value in components.iteritems() if value.name != self._name]
             names = ['world'] + comNames
             enumString = ':'.join(names)
 
@@ -508,7 +530,8 @@ class BasicComponent(object):
         '''
 
         try:
-            self.localSpaceBuffer.setMatrix(self.target.getMatrix(worldSpace=True), worldSpace=True)
+            #self.localSpaceBuffer.setMatrix(self.target.getMatrix(worldSpace=True), worldSpace=True)
+            self.localSpaceBuffer.setTranslation(self.target.getTranslation(worldSpace=True), worldSpace=True)
         except AttributeError:
             self.localSpaceBuffer.setMatrix(dt.Matrix(), worldSpace=True)
 
@@ -518,11 +541,11 @@ class BasicComponent(object):
         '''
 
         try:
-            targetM = self.target.getMatrix(worldSpace=True)
+            target = self.target.getTranslation(worldSpace=True)
         except AttributeError:
-            targetM = dt.Matrix()
+            target = dt.Vector(0,0,0)
 
-        self._mainControl.setMatrix(targetM, worldSpace=True)
+        self._mainControl.setTranslation(target, worldSpace=True)
 
     def bake(self, frame):
         '''
@@ -586,7 +609,21 @@ class BasicComponent(object):
         pmc.connectAttr(parentDecomposeMatrixNode.outputScale, self.parentSpaceBuffer.scale)
 
     def _createMainControl(self):
-        self._mainControl = self._mainControlType.create(upVector=[0,1,0], name=self.name+'_main')
+
+        if self._orientControlCurve:
+            # Grab a list of all the targets children
+            children = self.target.getChildren()
+
+            # Create a vector to aim the control curve
+            if len(children) == 1:
+                directionVector = children[0].getTranslation(worldSpace=True) - self.target.getTranslation(worldSpace=True)
+            else:
+                directionVector = self.target.getTranslation(worldSpace=True) - self.target.getParent().getTranslation(worldSpace=True)
+        else:
+            directionVector = dt.Vector(0,1,0)
+
+        self._mainControl = self._mainControlType.create(upVector=[directionVector.x, directionVector.y, directionVector.z],
+                                                         name=self.name+'_main')
 
     def _getCurveData(self, control):
 
@@ -722,7 +759,9 @@ class Rig(object):
     def __init__(self, name, componentData, directory, built=False, bound=False, baked=False, rigGroup=None):
 
         # Set up a logger for the rig class
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = addLogger(type(self).__name__)
+        #self.logger.setLevel(LOG_LEVEL)
+        #self.logger.addHandler(file_handler)
 
         # Assign a name, this is mostly for display purposes
         self._name = name
@@ -883,12 +922,42 @@ class Rig(object):
         # Set the index of the component
         self._componentData[id]['index'] = len(self._componentData) + 1
 
+        # Resort all the components indexes
+        self._sortComponentData()
+
         return id
 
     def removeComponent(self, id):
 
         # Remove the component from the component dictionary
         del self._componentData[id]
+
+        # Resort all the components indexes
+        self._sortComponentData()
+
+    def moveComponent(self, id, moveUp=True):
+
+        startIndex = self._componentData[id]['index']
+
+        if moveUp and startIndex != 1:
+            newIndex = startIndex - 1
+        elif not moveUp and startIndex != len(self._componentData):
+            newIndex = startIndex + 1
+        else:
+            newIndex = None
+
+        if newIndex:
+            for comId, value in self._componentData.iteritems():
+                if value['index'] == newIndex:
+                    self._componentData[comId]['index'] = startIndex
+
+            self._componentData[id]['index'] = newIndex
+
+    def duplicateComponent(self, id):
+
+        data = self._componentData[id].copy()
+        data['hidden'] = False
+        self.addComponent(**data)
 
     def setComponent(self, id, attr, value):
 
@@ -945,6 +1014,16 @@ class Rig(object):
         component = componentType(**kwargs)
 
         return component
+
+    def _sortComponentData(self):
+
+        sortedKeys = sorted(self._componentData.keys(), key = lambda id: self._componentData[id]['index'])
+
+        for index in range(len(sortedKeys)):
+            comIndex = self._componentData[sortedKeys[index]]['index']
+
+            if comIndex != index + 1:
+                self._componentData[sortedKeys[index]]['index'] = index + 1
 
     #### Public Properties ####
 
@@ -1105,10 +1184,15 @@ class FKComponent(BasicComponent):
             self._mainControl.rotateBy(difference)
             pmc.makeIdentity(self._mainControl, apply=True, rotate=True, translate=False, scale=False, jointOrient=False)
 
+        # Create an orient output group, this will actually be aimed
+        self._mainControlOrientOutput = pmc.group(empty=True, name=self.name + '_orient_srt')
+        self._mainControlOrientOutput.setMatrix(self._outputOrient.getMatrix(worldSpace=True), worldSpace=True)
+        pmc.parent(self._mainControlOrientOutput, self._mainControl)
+
         # Create a control output group, this will allow for offset transformations from the control (such as aiming)
-        self._mainControlOutput = pmc.group(empty=True)
+        self._mainControlOutput = pmc.group(empty=True, name=self.name + '_output_srt')
         self._mainControlOutput.setMatrix(self._mainControl.getMatrix(worldSpace=True), worldSpace=True)
-        pmc.parent(self._mainControlOutput, self._mainControl)
+        pmc.parent(self._mainControlOutput, self._mainControlOrientOutput)
 
     def _buildSquashAndStretch(self):
 
@@ -1360,6 +1444,14 @@ class FKComponent(BasicComponent):
 
         self.localSpaceBuffer.setMatrix(self.target.getMatrix(worldSpace=True), worldSpace=True)
 
+    def snap(self):
+        try:
+            targetM = self.target.getMatrix(worldSpace=True)
+        except AttributeError:
+            targetM = dt.Matrix()
+
+        self._mainControl.setMatrix(targetM, worldSpace=True)
+
     #### public properties ####
 
     @property
@@ -1551,10 +1643,12 @@ class MultiFKComponent(FKComponent):
 
     def parent(self, components, parentComponent, uprightComponent):
 
+        componentList = {key: value for key, value in components.iteritems() if value.name != self._name}
+
         for index in range(len(self._childComponents)):
 
             if index == 0:
-                self._childComponents[index].parent(components, parentComponent, uprightComponent)
+                self._childComponents[index].parent(componentList, parentComponent, uprightComponent)
             else:
                 previousParent = self._childComponents[index - 1]
                 self._childComponents[index].parent(self._childComponents, previousParent, previousParent)
@@ -1647,7 +1741,8 @@ class IKComponent(MultiFKComponent):
                                                  mainControlScale=self._mainControlScale,
                                                  mainControlColor=self._mainControlColor,
                                                  mainControlData=[self._mainControlData[0]],
-                                                 useCustomCurve=self._useCustomCurve)
+                                                 useCustomCurve=self._useCustomCurve,
+                                                 orientControlCurve=False)
 
         # Create a component for the base controller
         self.baseComponent = BasicComponent(name=self.name + '_IKControl',
@@ -1657,7 +1752,8 @@ class IKComponent(MultiFKComponent):
                                                  mainControlScale=baseCurveScale,
                                                  mainControlColor=self._mainControlColor,
                                                  mainControlData=[self._mainControlData[2]],
-                                                 useCustomCurve=self._useCustomCurve)
+                                                 useCustomCurve=self._useCustomCurve,
+                                                 orientControlCurve=False)
 
     #### public methods ####
 
@@ -1690,6 +1786,7 @@ class IKComponent(MultiFKComponent):
 
     def parent(self, components, parentComponent, uprightComponent):
 
+        componentList = {key: value for key, value in components.iteritems() if value.name != self._name}
 
         # Create the ik chain
         self._createIKChain()
@@ -1699,10 +1796,10 @@ class IKComponent(MultiFKComponent):
             self._childComponents[index].parent(self.ikChainSpaces, self.ikChainSpaces[index], self.ikChainSpaces[index])
 
         # Parent the ikComponent
-        self.ikComponent.parent(components, parentComponent, uprightComponent)
+        self.ikComponent.parent(componentList, parentComponent, uprightComponent)
 
         #Parent the base component
-        self.baseComponent.parent(components, parentComponent, uprightComponent)
+        self.baseComponent.parent(componentList, parentComponent, uprightComponent)
 
     def snap(self):
 
@@ -1806,8 +1903,27 @@ class IKComponent(MultiFKComponent):
             else:
                 pmc.parent(duplicate, self.ikChain[index-1])
 
+            # Create a buffer for the space
+            spaceBuffer = pmc.group(empty=True, name=joint.name()+'_space_srtBuffer')
+            spaceBuffer.setMatrix(duplicate.getMatrix(worldSpace=True), worldSpace=True)
+
+            # Set the space to follow the duplicate joint
+            riggingTools.parentConstraint(duplicate, spaceBuffer)
+
+            # Connect the baseComponents scale to the spaceBuffer
+            # This way global scale works
+            riggingTools.scaleConstraint(self.baseComponent.matrixOutput, spaceBuffer)
+
+            # Create an empty group to be the parent for the joint's component
+            space = pmc.group(empty=True, name=joint.name()+'_space')
+            space.setMatrix(duplicate.getMatrix(worldSpace=True), worldSpace=True)
+            pmc.parent(space, spaceBuffer)
+
+            # Add the space to the reference group
+            pmc.parent(spaceBuffer, self.ikChainGroup)
+
             # Create a space for the joint
-            self.ikChainSpaces.append(Space(duplicate))
+            self.ikChainSpaces.append(Space(space))
 
         # Create the ikHandle and effector
         self._handle, self._effector = pmc.ikHandle(sj=self.ikChain[0], ee=self.ikChain[self.endIndex])
@@ -1895,7 +2011,6 @@ class IKComponent(MultiFKComponent):
         polePoint = (elbowDirection * 5) + averagePoint
 
         return polePoint
-
 
     ### Public Properties
 
@@ -2220,7 +2335,7 @@ class LegIKComponent(IKComponent):
                                                      ))
 
         # Create a child component for the endJoint
-        self._childComponents.append(FKComponent(name=self.name + str(self.endIndex + 1),
+        self._childComponents.append(FKComponent(name=self.name + str(self.endIndex + 2),
                                                  target=self._deformTargets[self.endIndex+1],
                                                  spaceSwitchEnabled=False,
                                                  stretchTarget=self._childComponents[self.endIndex - 1],
@@ -2261,7 +2376,7 @@ class LegIKComponent(IKComponent):
         self._childComponents[0].parent(self.ikChainSpaces, self.ikChainSpaces[0], self.ikChainSpaces[0])
         self._childComponents[1].parent(self.ikChainSpaces, self.ikChainSpaces[1], self.ikChainSpaces[1])
         self._childComponents[2].parent(self.ikChainSpaces, self.ikChainSpaces[2], self.ikChainSpaces[2])
-        self._childComponents[3].parent(self.ikChainSpaces, self.ikComponent, self.ikComponent)
+        self._childComponents[3].parent(self.ikChainSpaces, self._childComponents[2], self._childComponents[2])
 
         # Parent the ikComponent
         self.ikComponent.parent(components, parentComponent, uprightComponent)
@@ -2385,7 +2500,9 @@ class RigToolsData(object):
     def __init__(self, dir=os.environ['MAYA_APP_DIR']):
 
         # Set up a logger for the data class
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = addLogger(type(self).__name__)
+        #self.logger.setLevel(LOG_LEVEL)
+        #self.logger.addHandler(file_handler)
 
         self.dir = dir
 
@@ -2414,7 +2531,7 @@ class RigToolsModel(object):
     def __init__(self, data):
 
         # Set up a logger for the model
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = addLogger(type(self).__name__)
 
         # Set up initial variables
         self._activeRigs = self._loadFromScene()
@@ -2547,7 +2664,15 @@ class RigToolsModel(object):
 
     def removeComponent(self, rigName, id):
 
-        return self._activeRigs[rigName].removeComponent(id)
+        self._activeRigs[rigName].removeComponent(id)
+
+    def moveComponent(self, rigName, id, moveUp):
+
+        self._activeRigs[rigName].moveComponent(id, moveUp)
+
+    def duplicateComponent(self, rigName, id):
+
+        self._activeRigs[rigName].duplicateComponent(id)
 
     def setComponentValue(self, rigName, id, attr, value):
         self._activeRigs[rigName].setComponent(id, attr, value)

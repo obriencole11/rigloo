@@ -5,13 +5,35 @@ import logging
 import uuid
 from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
 
+FOSSIL_VERSION = 'v1.0.0-beta'
+
 ##############################
 #          Logging           #
 ##############################
 
-logging.basicConfig(filename=os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'),
-                    format='%(levelname)s:%(name)s:%(message)s',
-                    level=logging.WARNING)
+file_handler = logging.FileHandler(os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'))
+file_handler.setFormatter(logging.Formatter('%(asctime)s : %(name)s : %(levelname)s : %(message)s'))
+file_handler.setLevel(logging.DEBUG)
+
+LOGS = []
+
+def addLogger(name=__name__):
+
+    # Add a logger for the specified name
+    logger = logging.getLogger(name)
+
+    # Add the module file handler
+    logger.addHandler(file_handler)
+
+    # Add the logger to a list of logs
+    LOGS.append(logger)
+
+    return logger
+
+def setLogLevel(level):
+
+    for logger in LOGS:
+        logger.setLevel(level)
 
 ##############################
 #       UI Controllers       #
@@ -37,7 +59,8 @@ class BaseController(QtCore.QObject):
         QtCore.QObject.__init__(self)
 
         # Set up a logger for the controller classes
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = addLogger(type(self).__name__)
+        #self.logger.setLevel(LOG_LEVEL)
 
         # Set a variable to store the active rig
         self._activeRig = None
@@ -71,6 +94,14 @@ class BaseController(QtCore.QObject):
     def removeComponent(self, id):
         # Tells the model to remove the specified component
         # Then refreshed the view
+        raise NotImplementedError
+
+    @Slot(str, bool)
+    def moveComponent(self, id, moveUp):
+        raise NotImplementedError
+
+    @Slot(str)
+    def duplicateComponent(self, id):
         raise NotImplementedError
 
     @Slot(str)
@@ -199,6 +230,8 @@ class ViewController(BaseController):
         self._window.onBindClicked.connect(self.bindRig)
         self._window.onRemoveClicked.connect(self.removeRig)
         self._window.onRemoveComponentClicked.connect(self.removeComponent)
+        self._window.onMoveComponentClicked.connect(self.moveComponent)
+        self._window.onDuplicateComponentClicked.connect(self.duplicateComponent)
         self._window.onRigSwitched.connect(self.switchActiveRig)
         self._window.onBakeToggled.connect(self.toggleBake)
         self._window.onWindowClosed.connect(self.removePreview)
@@ -491,6 +524,11 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     # A signal for removing a component
     # The string is the id of the component
     onRemoveComponentClicked = Signal(str)
+    onDuplicateComponentClicked = Signal(str)
+
+    # A signal for moving a component
+    # The string is the id, the bool is whether it should move up or not
+    onMoveComponentClicked = Signal(str, bool)
 
     # A signal to let the control know it should add selected joints to a component
     # The str is the id of the component to update
@@ -516,7 +554,9 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         super(MainComponentWindow, self).__init__(parent=parent)
 
         # Set up a logger
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = addLogger(type(self).__name__)
+        #self.logger.setLevel(LOG_LEVEL)
+        #self.logger.addHandler(file_handler)
 
         # Create a list for storing component widgets
         self._componentWidgets = []
@@ -533,7 +573,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     def _setup(self):
 
         # Set the default state of the window
-        self.setWindowTitle('Fossil')
+        self.setWindowTitle('Fossil ' + FOSSIL_VERSION)
 
         # Set the icon for the window
         basePath = os.path.dirname(os.path.realpath(__file__))
@@ -573,11 +613,13 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         debugAction.setStatusTip('Toggle Debug Mode')
         debugAction.toggled.connect(self.onDebugToggled)
 
+        '''
         logAction = QtWidgets.QAction('Log to console', self)
         logAction.setCheckable(True)
         logAction.setChecked(False)
         logAction.setStatusTip('Toggle Debug Mode')
         logAction.toggled.connect(self.onLogToggled)
+        '''
 
         bakeAction = QtWidgets.QAction('Bake To Animation', self)
         bakeAction.setCheckable(True)
@@ -597,7 +639,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         fileMenu.addAction(loadAction)
         settingsMenu.addAction(debugAction)
         settingsMenu.addAction(bakeAction)
-        settingsMenu.addAction(logAction)
+        #settingsMenu.addAction(logAction)
 
     def _createMainWidget(self):
 
@@ -766,6 +808,8 @@ class MainComponentWindow(QtWidgets.QMainWindow):
             # Connect the widgets signals
             widget.onAddSelected.connect(self.onAddSelectedClicked)
             widget.onRemoveComponentClicked.connect(self.onRemoveComponentClicked)
+            widget.onMoveComponentClicked.connect(self.onMoveComponentClicked)
+            widget.onDuplicateComponentClicked.connect(self.onDuplicateComponentClicked)
             self.onUpdateNameList.connect(widget.onUpdateNameList)
             widget.onNameChanged.connect(self.onUpdateNameList)
 
@@ -775,6 +819,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         # Sort the widgets by index
         # Then add the widget to the layout
         list = sorted(self._componentWidgets, key= lambda widget: widget.index)
+
         for widget in list:
             # Add the widget
             layout.addWidget(widget)
@@ -895,13 +940,17 @@ class ComponentWidget(QtWidgets.QWidget):
     # These alert the ui to changes in the data
     onAddSelectedClicked = Signal()
     onRemoveComponentClicked = Signal(str)
+    onMoveComponentClicked = Signal(str, bool)
+    onDuplicateComponentClicked = Signal(str)
     onUpdateNameList = Signal(str, str)
 
     def __init__(self, name, componentData, parent, id, componentTypeData, controlTypeData, componentSettings, index):
         QtWidgets.QWidget.__init__(self)
 
         # Set up a logger
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = addLogger(type(self).__name__)
+        #self.logger.setLevel(LOG_LEVEL)
+        #self.logger.addHandler(file_handler)
 
         # Grab a reference to the parent widget
         self.parent = parent
@@ -1054,9 +1103,19 @@ class ComponentWidget(QtWidgets.QWidget):
 
         # Create a menu for the button
         settingsMenu = QtWidgets.QMenu(settingsButton)
-        settingsAction = QtWidgets.QAction('Remove Component', settingsMenu)
-        settingsAction.triggered.connect(self.onRemoveComponent)
-        settingsMenu.addAction(settingsAction)
+        removeAction = QtWidgets.QAction('Remove Component', settingsMenu)
+        removeAction.triggered.connect(self.onRemoveComponent)
+        moveUpAction = QtWidgets.QAction('Move Up', settingsMenu)
+        moveUpAction.triggered.connect(self.onMoveUpComponent)
+        moveDownAction = QtWidgets.QAction('Move Down', settingsMenu)
+        moveDownAction.triggered.connect(self.onMoveDownComponent)
+        duplicateAction = QtWidgets.QAction('Duplicate Component', settingsMenu)
+        duplicateAction.triggered.connect(self.onDuplicateComponent)
+
+        settingsMenu.addAction(removeAction)
+        settingsMenu.addAction(moveUpAction)
+        settingsMenu.addAction(moveDownAction)
+        settingsMenu.addAction(duplicateAction)
         settingsButton.setMenu(settingsMenu)
 
         # Add a layout for the settings button
@@ -1202,6 +1261,18 @@ class ComponentWidget(QtWidgets.QWidget):
     def onRemoveComponent(self):
         self.onRemoveComponentClicked.emit(self.id)
 
+    @Slot()
+    def onMoveUpComponent(self):
+        self.onMoveComponentClicked.emit(self.id, True)
+
+    @Slot()
+    def onMoveDownComponent(self):
+        self.onMoveComponentClicked.emit(self.id, False)
+
+    @Slot()
+    def onDuplicateComponent(self):
+        self.onDuplicateComponentClicked.emit(self.id)
+
 
 ##############################
 #      Argument Widgets      #
@@ -1217,7 +1288,10 @@ class ComponentArgumentWidget(QtCore.QObject):
 
     def __init__(self):
         # Set up a logger
-        self.logger = logging.getLogger(type(self).__name__)
+        self.logger = addLogger(type(self).__name__)
+        #self.logger.setLevel(LOG_LEVEL)
+        #self.logger.addHandler(file_handler)
+
         self.onValueChanged.connect(self.valueChangedAlert)
 
     @property
@@ -1428,7 +1502,6 @@ class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
             self.setCurrentIndex(self.findText(newName))
 
         self.removeItem(self.findText(oldName))
-
 
 class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):

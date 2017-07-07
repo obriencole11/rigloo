@@ -11,9 +11,35 @@ import os
 #          Logging           #
 ##############################
 
-logging.basicConfig(filename=os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'),
-                    format='%(levelname)s:%(name)s:%(message)s',
-                    level=logging.WARNING)
+file_handler = logging.FileHandler(os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'))
+file_handler.setFormatter(logging.Formatter('%(asctime)s : %(name)s : %(levelname)s : %(message)s'))
+file_handler.setLevel(logging.DEBUG)
+
+LOGS = []
+LOG_LEVEL = logging.DEBUG
+
+def addLogger(name=__name__):
+
+    # Add a logger for the specified name
+    logger = logging.getLogger(name)
+
+    # Add the module file handler
+    logger.addHandler(file_handler)
+
+    # Add the logger to a list of logs
+    LOGS.append(logger)
+
+    return logger
+
+def setLogLevel(level):
+
+    for logger in LOGS:
+        logger.setLevel(level)
+
+
+##############################
+#          Classes           #
+##############################
 
 class ModelController(ui.ViewController):
 
@@ -61,6 +87,20 @@ class ModelController(ui.ViewController):
         self.logger.debug('Removing a %s component from the rig', self.componentData[id])
         self._loadViewData()
         self._model.removeComponent(self._currentRig, id)
+        self._refreshView()
+
+    @Slot(str, bool)
+    def moveComponent(self, id, moveUp):
+        self.logger.debug('Moving a %s component', self.componentData[id])
+        self._loadViewData()
+        self._model.moveComponent(self._currentRig, id, moveUp)
+        self._refreshView()
+
+    @Slot(str)
+    def duplicateComponent(self, id):
+        self.logger.debug('Duplicating a %s component', self.componentData[id])
+        self._loadViewData()
+        self._model.duplicateComponent(self._currentRig, id)
         self._refreshView()
 
     @Slot(str)
@@ -250,16 +290,15 @@ class MayaController(ModelController):
 mainWindow = None
 controller = None
 
-
 def load():
     global mainWindow
     global controller
 
+    logging.basicConfig(level=logging.DEBUG, filename=os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'),
+                        format=logging.Formatter('%(name)s : %(levelname)s : %(message)s'))
+
     # If the window already exists, don't create a new one
     if mainWindow is None:
-
-        # Setup the loggers
-
 
         # Grab the maya application and the main maya window
         app = QtWidgets.QApplication.instance()
