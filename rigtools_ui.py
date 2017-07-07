@@ -60,7 +60,6 @@ class BaseController(QtCore.QObject):
 
         # Set up a logger for the controller classes
         self.logger = addLogger(type(self).__name__)
-        #self.logger.setLevel(LOG_LEVEL)
 
         # Set a variable to store the active rig
         self._activeRig = None
@@ -949,8 +948,6 @@ class ComponentWidget(QtWidgets.QWidget):
 
         # Set up a logger
         self.logger = addLogger(type(self).__name__)
-        #self.logger.setLevel(LOG_LEVEL)
-        #self.logger.addHandler(file_handler)
 
         # Grab a reference to the parent widget
         self.parent = parent
@@ -967,10 +964,8 @@ class ComponentWidget(QtWidgets.QWidget):
         # Set the widgets title
         self.name = name
 
-
-        # Set the widgets index
+        # Set the widgets id and index
         self.id = id
-
         self.index = index
 
         # Connect some internal signals
@@ -1466,32 +1461,27 @@ class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
         # Add all the components names from the componentData
         id = parent.id
         self.addItems([value['name'] for key, value in componentData.iteritems() if key is not id])
+        self.ids = [key for key, value in componentData.iteritems() if key is not id]
         self.addItem('world')
-
-        # Grab a reference to the componentData
-        self.componentData = componentData
+        self.ids.append(None)
 
         # Create a variable to hold the current selections id
         self._id = None
 
     @property
     def value(self):
-        if self.currentText() is 'world':
-            return None
-        else:
-            for key, value in self.componentData.iteritems():
-                if value['name'] == self.currentText():
-                    return key
-            self.logger.error('The component %s does not exist')
+        return self.ids[self.currentIndex()]
 
     @value.setter
     def value(self, value):
 
-        if value in [self.itemText(index) for index in range(self.count())]:
-            self._id = value
-            self.setCurrentIndex(self.findText(self.componentData[value]['name']))
-        else:
+        if value is None:
             self.setCurrentIndex(self.findText('world'))
+        else:
+            if self.componentData[value]['name'] in [self.itemText(index) for index in range(self.count())]:
+                self.setCurrentIndex(self.findText(self.componentData[value]['name']))
+            else:
+                self.logger.warning('Component ID: %s not found', value)
 
     @Slot(str, str)
     def onNameChanged(self, oldName, newName):

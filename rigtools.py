@@ -5,6 +5,7 @@ import riggingTools
 import os
 import json
 import uuid
+import pprint
 import logging
 
 ##############################
@@ -672,7 +673,6 @@ class BasicComponent(object):
         arguments['uprightSpace'] = getName(self.uprightSpace)
         arguments['type'] = self.__class__.__name__
         arguments['utilityNodes'] = {name: node.name() for name, node in self._utilityNodes.iteritems()}
-
         arguments['mainControlData'] = self.controlCurveData
 
         return arguments
@@ -749,7 +749,11 @@ class BasicComponent(object):
         # Grab a list of the cv data for the main curve
 
         self.logger.debug('Main Control found, collecting curve data')
-        return [self._getCurveData(self.matrixOutput)]
+
+        if self.matrixOutput is not None:
+            return [self._getCurveData(self.matrixOutput)]
+        else:
+            return self._mainControlData
 
 class Rig(object):
     '''
@@ -760,8 +764,6 @@ class Rig(object):
 
         # Set up a logger for the rig class
         self.logger = addLogger(type(self).__name__)
-        #self.logger.setLevel(LOG_LEVEL)
-        #self.logger.addHandler(file_handler)
 
         # Assign a name, this is mostly for display purposes
         self._name = name
@@ -819,6 +821,8 @@ class Rig(object):
             try:
                 parent = self._components[self._componentData[id]['parentSpace']]
             except KeyError:
+                self.logger.info('Parent id: %s not found in component data for %s, setting parent to world',
+                                 str(self._componentData[id]['parentSpace']), self._componentData[id]['name'])
                 parent = None
 
             try:
@@ -1055,6 +1059,8 @@ class Rig(object):
         sceneData = {}
 
         for id, component in self._components.iteritems():
+
+            data = component.controlCurveData
             sceneData[id] = {}
             sceneData[id]['mainControlData'] = component.controlCurveData
 
@@ -1112,7 +1118,7 @@ class FKComponent(BasicComponent):
         self._stretchTarget = stretchTarget
         self._stretchEnabled = stretchEnabled
         self._squashEnabled = squashEnabled
-        self._stretchScale = 2.0
+        self._stretchScale = 1.0
         self._stretchMin = 0.0
         self._isLeafJoint = isLeafJoint
         self._aimAtChild = aimAtChild
@@ -1213,6 +1219,8 @@ class FKComponent(BasicComponent):
                                                    name=self.name+'_startJointTranslate_to_Matrix')
         startJointTranslateWorldMatrix = pmc.createNode('multMatrix',
                                                         name=self.name+'_startJointTranslateMatrix_to_WorldMatrix')
+        squashScalePower = pmc.createNode('multiplyDivide', name=self.name+'_squashPower')
+        pmc.setAttr(squashScalePower.operation, 'Power')
 
         # Grab the two points we will base distance on
         point1 = self._stretchTarget.matrixOutput
@@ -1251,10 +1259,7 @@ class FKComponent(BasicComponent):
 
         # Connect normalized distance to multiply node
         pmc.connectAttr(maxDistanceDiv.outFloat, scaleMult.floatA)
-        pmc.addAttr(self._mainControl, ln='squashAndStretchScale', sn='sass', nn='Squash and Stretch Scale',
-                    hasMinValue=True, minValue=self._stretchMin, hidden=False, keyable=True)
-        pmc.setAttr(self._mainControl.squashAndStretchScale, self._stretchScale)
-        pmc.connectAttr(self._mainControl.squashAndStretchScale, scaleMult.floatB)
+        pmc.setAttr(scaleMult.floatB, 2.0)
 
         # Connect scaled output to the max node
         pmc.setAttr(outputMax.floatB, self._stretchMin)
@@ -1263,6 +1268,13 @@ class FKComponent(BasicComponent):
         # Connect maxed output to the inverse node
         pmc.setAttr(inverseOutput.floatA, 1.0)
         pmc.connectAttr(outputMax.outFloat, inverseOutput.floatB)
+
+        # Connect the inverse node to the power node
+        pmc.connectAttr(inverseOutput.outFloat, squashScalePower.input1X)
+        pmc.addAttr(self._mainControl, ln='stretchScale', sn='ss', nn='Stretch Scale',
+                    hasMinValue=True, minValue=self._stretchMin, hidden=False, keyable=True)
+        pmc.setAttr(self._mainControl.stretchScale, self._stretchScale)
+        pmc.connectAttr(self._mainControl.stretchScale, squashScalePower.input2X)
 
         # Connect to the parent space
         try:
@@ -1283,8 +1295,8 @@ class FKComponent(BasicComponent):
         if self.stretchEnabled:
             pmc.connectAttr(self._utilityNodes['outMax'].outFloat, self._stretchTarget.stretchInput.scaleX, force=True)
         if self.squashEnabled:
-            pmc.connectAttr(self._utilityNodes['inverseOutput'].outFloat, self._stretchTarget.stretchInput.scaleY, force=True)
-            pmc.connectAttr(self._utilityNodes['inverseOutput'].outFloat, self._stretchTarget.stretchInput.scaleZ, force=True)
+            pmc.connectAttr(squashScalePower.outputX, self._stretchTarget.stretchInput.scaleY, force=True)
+            pmc.connectAttr(squashScalePower.outputX, self._stretchTarget.stretchInput.scaleZ, force=True)
 
     def _aimAtTarget(self, aimObject, targetObject, upObject=None):
 
@@ -1676,7 +1688,13 @@ class MultiFKComponent(FKComponent):
 
     @property
     def targets(self):
-        return self._deformTargets
+
+        targets = self._deformTargets
+
+        if self._isLeafJoint:
+            targets.extend([target.getParent() for target in self._deformTargets])
+
+        return targets
 
     @property
     def matrixOutput(self):
@@ -2033,7 +2051,12 @@ class IKComponent(MultiFKComponent):
 
     @property
     def targets(self):
-        return self._deformTargets
+        targets = self._deformTargets
+
+        if self._isLeafJoint:
+            targets.extend([target.getParent() for target in self._deformTargets])
+
+        return targets
 
     @property
     def matrixOutput(self):
@@ -2061,9 +2084,12 @@ class IKComponent(MultiFKComponent):
         except AttributeError:
             poleControl = None
 
-        return [self._getCurveData(self.ikComponent.matrixOutput), self._getCurveData(poleControl),
-                self._getCurveData(self.baseComponent.matrixOutput),
-                self._getCurveData(self._childComponents[1].matrixOutput)]
+        if self.ikComponent.matrixOutput is not None:
+            return [self._getCurveData(self.ikComponent.matrixOutput), self._getCurveData(poleControl),
+                    self._getCurveData(self.baseComponent.matrixOutput),
+                    self._getCurveData(self._childComponents[1].matrixOutput)]
+        else:
+            return self._mainControlData
 
 class SpineIKComponent(MultiFKComponent):
     '''
@@ -2285,9 +2311,13 @@ class SpineIKComponent(MultiFKComponent):
         # Grab a list of the cv data for the main curve
 
         self.logger.debug('Main Control found, collecting curve data')
-        return [self._getCurveData(self.baseComponent.matrixOutput),
-                self._getCurveData(self.endComponent.matrixOutput),
-                self._getCurveData(self._childComponents[1].matrixOutput)]
+
+        if self.baseComponent.matrixOutput is not None:
+            return [self._getCurveData(self.baseComponent.matrixOutput),
+                    self._getCurveData(self.endComponent.matrixOutput),
+                    self._getCurveData(self._childComponents[1].matrixOutput)]
+        else:
+            return  self._mainControlData
 
 class LegIKComponent(IKComponent):
 
@@ -2490,7 +2520,13 @@ class ScaleComponent(BasicComponent):
 
         return  error
 
-##############################
+    @property
+    def targets(self):
+        targets = [self._target]
+
+        return targets
+
+
 ##############################
 #       Model Classes        #
 ##############################
@@ -2549,12 +2585,11 @@ class RigToolsModel(object):
             rigs = {rigName: Rig(rigName, rigData['componentData'], rigData['directory'],
                                  rigGroup=rigData['rigGroup'])
                                 for rigName, rigData in rigData.iteritems()}
+
         except KeyError:
             self.logger.info('No rigs found in scene, creating an empty rig instead')
             rigs = {}
             pmc.fileInfo['rigs'] = repr(rigs)
-
-
 
         return rigs
 
