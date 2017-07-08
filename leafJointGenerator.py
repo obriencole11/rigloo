@@ -1,18 +1,18 @@
 import pymel.core as pmc
 
-def generate(skeleton):
+def generate(suffix='_LEAF'):
 
-    joints = pmc.listRelatives(skeleton, ad=True)
-    joints.append(skeleton)
+    selection = pmc.selected()[0]
+
+    joints = pmc.listRelatives(selection, ad=True)
+    joints.append(selection)
 
     parents = [joint.getParent() for joint in joints]
 
-    dups = [pmc.duplicate(joint, parentOnly=True, name=joint.name() + '_leafParent')[0] for joint in joints]
-
-    for dup in dups:
-        pass
+    dups = [pmc.duplicate(joint, parentOnly=True, name=joint.name() + suffix)[0] for joint in joints]
 
     for index in range(len(joints)):
+
 
         pmc.parent(joints[index], dups[index])
 
@@ -22,11 +22,3 @@ def generate(skeleton):
             pmc.parent(dups[index], dups[joints.index(parents[index])])
         except ValueError:
             pass
-
-
-
-
-
-
-selection = pmc.selected()
-generate(selection[0])

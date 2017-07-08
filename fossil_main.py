@@ -68,7 +68,6 @@ class ModelController(ui.ViewController):
         for argument, value in data.iteritems():
             self._model.setComponentValue(self._currentRig, id, argument, value)
 
-
     @Slot(str)
     def addComponent(self, componentType):
         # Tells the model to add a new component

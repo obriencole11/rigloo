@@ -1477,21 +1477,20 @@ class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
 
         if value is None:
             self.setCurrentIndex(self.findText('world'))
-        else:
-            if self.componentData[value]['name'] in [self.itemText(index) for index in range(self.count())]:
+        if value in self.componentData:
+            if value in self.ids:
                 self.setCurrentIndex(self.findText(self.componentData[value]['name']))
             else:
                 self.logger.warning('Component ID: %s not found', value)
+                self.setCurrentIndex(self.findText('world'))
+        else:
+            self.setCurrentIndex(self.findText('world'))
 
     @Slot(str, str)
     def onNameChanged(self, oldName, newName):
 
-        self.addItem(newName)
+        self.setItemText(self.findText(oldName), newName)
 
-        if self.currentText() == oldName:
-            self.setCurrentIndex(self.findText(newName))
-
-        self.removeItem(self.findText(oldName))
 
 class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):

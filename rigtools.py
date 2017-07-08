@@ -611,7 +611,7 @@ class BasicComponent(object):
 
     def _createMainControl(self):
 
-        if self._orientControlCurve:
+        if self._orientControlCurve and self.target is not None:
             # Grab a list of all the targets children
             children = self.target.getChildren()
 
@@ -1192,12 +1192,10 @@ class FKComponent(BasicComponent):
 
         # Create an orient output group, this will actually be aimed
         self._mainControlOrientOutput = pmc.group(empty=True, name=self.name + '_orient_srt')
-        self._mainControlOrientOutput.setMatrix(self._outputOrient.getMatrix(worldSpace=True), worldSpace=True)
         pmc.parent(self._mainControlOrientOutput, self._mainControl)
-
+        
         # Create a control output group, this will allow for offset transformations from the control (such as aiming)
         self._mainControlOutput = pmc.group(empty=True, name=self.name + '_output_srt')
-        self._mainControlOutput.setMatrix(self._mainControl.getMatrix(worldSpace=True), worldSpace=True)
         pmc.parent(self._mainControlOutput, self._mainControlOrientOutput)
 
     def _buildSquashAndStretch(self):
@@ -1455,6 +1453,8 @@ class FKComponent(BasicComponent):
         '''
 
         self.localSpaceBuffer.setMatrix(self.target.getMatrix(worldSpace=True), worldSpace=True)
+        self._mainControlOrientOutput.setMatrix(self._outputOrient.getMatrix(worldSpace=True), worldSpace=True)
+        self._mainControlOutput.setMatrix(self._mainControl.getMatrix(worldSpace=True), worldSpace=True)
 
     def snap(self):
         try:
@@ -2368,7 +2368,7 @@ class LegIKComponent(IKComponent):
         self._childComponents.append(FKComponent(name=self.name + str(self.endIndex + 2),
                                                  target=self._deformTargets[self.endIndex+1],
                                                  spaceSwitchEnabled=False,
-                                                 stretchTarget=self._childComponents[self.endIndex - 1],
+                                                 stretchTarget=self._childComponents[self.endIndex],
                                                  stretchEnabled=self._squashEnabled,
                                                  squashEnabled=self._stretchEnabled,
                                                  mainControlType=self._offsetCurveType,
@@ -2406,7 +2406,7 @@ class LegIKComponent(IKComponent):
         self._childComponents[0].parent(self.ikChainSpaces, self.ikChainSpaces[0], self.ikChainSpaces[0])
         self._childComponents[1].parent(self.ikChainSpaces, self.ikChainSpaces[1], self.ikChainSpaces[1])
         self._childComponents[2].parent(self.ikChainSpaces, self.ikChainSpaces[2], self.ikChainSpaces[2])
-        self._childComponents[3].parent(self.ikChainSpaces, self._childComponents[2], self._childComponents[2])
+        self._childComponents[3].parent(self.ikChainSpaces, self.ikComponent, self.ikComponent)
 
         # Parent the ikComponent
         self.ikComponent.parent(components, parentComponent, uprightComponent)
