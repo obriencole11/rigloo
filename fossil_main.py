@@ -113,7 +113,7 @@ class ModelController(ui.ViewController):
         oldData = self.componentData[id]
 
         try:
-            oldData['deformTargets'].extend(nameData)
+            oldData['bindTargets'].extend(nameData)
         except KeyError:
             try:
                 oldData['target'] = nameData[0]

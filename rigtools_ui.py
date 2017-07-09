@@ -1711,7 +1711,7 @@ class QColorWidget(QtWidgets.QPushButton, ComponentArgumentWidget):
 
 COMPONENT_SETTINGS = {
     'name': QNameWidget,
-    'deformTargets': QTargetList,
+    'bindTargets': QTargetList,
     'mainControlType': QControlComboBox,
     'mainControlScale': QScalarWidget,
     'childControlType': QControlComboBox,
@@ -1721,15 +1721,20 @@ COMPONENT_SETTINGS = {
     'uprightSpace': QRigComponentComboBox,
     'stretchEnabled': QBoolWidget,
     'squashEnabled': QBoolWidget,
-    'noFlipKnee': QBoolWidget,
+    'poleVectorEnabled': QBoolWidget,
     'poleCurveType': QControlComboBox,
     'poleCurveScale': QScalarWidget,
+    'poleCurveDistance': QScalarWidget,
     'offsetCurveType': QControlComboBox,
     'offsetCurveScale': QScalarWidget,
     'baseCurveType': QControlComboBox,
     'baseCurveScale': QScalarWidget,
-    'baseCurveParentSpace': QRigComponentComboBox,
-    'baseCurveUprightSpace': QRigComponentComboBox,
+    'baseParentSpace': QRigComponentComboBox,
+    'baseUprightSpace': QRigComponentComboBox,
+    'baseSpaceSwitchEnabled': QBoolWidget,
+    'secondaryParentSpace': QRigComponentComboBox,
+    'secondaryUprightSpace': QRigComponentComboBox,
+    'secondarySpaceSwitchEnabled': QBoolWidget,
     'target': QTarget,
     'spaceSwitchEnabled': QBoolWidget,
     'isLeafJoint': QBoolWidget,
@@ -1737,7 +1742,14 @@ COMPONENT_SETTINGS = {
     'aimVector': QAxisWidget,
     'aimCurveDistance': QScalarWidget,
     'useCustomCurve': QBoolWidget,
-    'mainControlColor': QColorWidget
+    'mainControlColor': QColorWidget,
+    'useCustomBaseCurve': QBoolWidget,
+    'useCustomPoleCurve': QBoolWidget,
+    'useCustomOffsetCurve': QBoolWidget,
+    'useCustomSecondaryCurve': QBoolWidget,
+    'useCustomSpineCurve': QBoolWidget,
+    'stretchScale': QScalarWidget,
+    'squashScale': QScalarWidget
 }
 
 COMPONENT_SETTINGS_DEBUG = {
@@ -1753,9 +1765,9 @@ COMPONENT_GROUPS = [
     ('General Settings', [
         'name',
         'target',
-        'deformTargets',
+        'bindTargets',
         'isLeafJoint',
-        'noFlipKnee'
+        'poleVectorEnabled'
     ]),
     ('Space Settings', [
         'parentSpace',
@@ -1770,25 +1782,35 @@ COMPONENT_GROUPS = [
     ]),
     ('Squash and Stretch', [
         'stretchEnabled',
-        'squashEnabled'
+        'squashEnabled',
+        'stretchScale',
+        'squashScale'
     ]),
     ('Secondary Curve Settings', [
         'baseCurveType',
         'baseCurveScale',
-        'baseCurveParentSpace',
-        'baseCurveUprightSpace',
+        'baseParentSpace',
+        'baseUprightSpace',
+        'baseSpaceSwitchEnabled',
+        'useCustomBaseCurve',
         'secondaryParentSpace',
-        'secondaryUprightSpace'
+        'secondaryUprightSpace',
+        'secondarySpaceSwitchEnabled',
+        'useCustomSecondaryCurve'
     ]),
     ('Extra Curve Settings', [
         'childControlType',
         'childControlScale',
         'offsetCurveType',
         'offsetCurveScale',
+        'useCustomOffsetCurve',
         'poleCurveScale',
         'poleCurveType',
+        'poleCurveDistance',
+        'useCustomPoleCurve',
         'spineControlType',
-        'spineControlScale'
+        'spineControlScale',
+        'useCustomSpineCurve'
     ]),
     ('Debug', [
         'type',
@@ -1818,7 +1840,7 @@ TEST_COMPONENT_TYPES = {
         'mainControlType': 'default',
         'mainControlScale': 10.0,
         'target': None,
-        'deformTargets': [],
+        'bindTargets': [],
         'aimAxis': [1,0,0],
         'parentSpace': None,
         'uprightSpace': None,
@@ -1832,7 +1854,7 @@ TEST_COMPONENT_TYPES = {
         'mainControlType': 'cube',
         'mainControlScale': 10.0,
         'target': None,
-        'deformTargets': [],
+        'bindTargets': [],
         'aimAxis': [1,0,0],
         'parentSpace': None,
         'uprightSpace': None,
@@ -1847,7 +1869,7 @@ TEST_COMPONENT_TYPES = {
             'mainControlScale': 20.0,
             'childControlType': 'default',
             'childControlScale': 10.0,
-            'deformTargets': [],
+            'bindTargets': [],
             'aimAxis': [1,0,0],
             'parentSpace': None,
             'uprightSpace': None,
@@ -1871,7 +1893,7 @@ TEST_COMPONENT_DATA = {
         'index': 0,
         'type': 'IKComponent',
         'name': 'leg_L',
-        'deformTargets': ['ethan_thigh_L', 'ethan_knee_L', 'ethan_foot_L'],
+        'bindTargets': ['ethan_thigh_L', 'ethan_knee_L', 'ethan_foot_L'],
         'mainControlType': 'cube',
         'mainControlScale': 10.0,
         'aimAxis': [1, 0, 0],
@@ -1885,7 +1907,7 @@ TEST_COMPONENT_DATA = {
         'index': 1,
         'type': 'FKComponent',
         'name': 'hips_M',
-        'deformTargets': ['ethan_hips'],
+        'bindTargets': ['ethan_hips'],
         'mainControlType': 'square',
         'aimAxis': [1, 0, 0],
         'parentSpace': 'rootID',
@@ -1897,7 +1919,7 @@ TEST_COMPONENT_DATA = {
         'index': 2,
         'type': 'Component',
         'name': 'root_M',
-        'deformTargets': ['ethan_root'],
+        'bindTargets': ['ethan_root'],
         'mainControlType': 'circle',
         'aimAxis': [1, 0, 0],
         'parentSpace': None,

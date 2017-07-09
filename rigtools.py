@@ -5,7 +5,6 @@ import riggingTools
 import os
 import json
 import uuid
-import pprint
 import logging
 
 ##############################
@@ -91,61 +90,75 @@ COMPONENT_TYPES = {
         'type': 'IKComponent',
         'mainControlType': 'cube',
         'mainControlScale': 10.0,
-        'deformTargets': [],
+        'bindTargets': [],
         'parentSpace': None,
         'uprightSpace': None,
         'stretchEnabled': False,
         'squashEnabled': False,
         'icon': "/icons/icon-IKComponent.svg",
-        'noFlipKnee': False,
+        'poleVectorEnabled': True,
         'enabled': True,
         'spaceSwitchEnabled': False,
         'isLeafJoint': False,
         'useCustomCurve': False,
         'mainControlData': None,
         'poleCurveType': 'triangle',
-        'poleCurveScale': 5.0,
+        'poleCurveScale': 1.0,
+        'poleCurveDistance': 5.0,
         'baseCurveType':'cube',
         'baseCurveScale':10.0,
-        'baseCurveParentSpace':None,
-        'baseCurveUprightSpace':None,
+        'baseParentSpace':None,
+        'baseUprightSpace':None,
+        'baseSpaceSwitchEnabled':False,
+        'useCustomBaseCurve':False,
+        'useCustomOffsetCurve':False,
+        'useCustomPoleCurve':False,
         'offsetCurveType':'sphere',
         'offsetCurveScale':5.0,
-        'mainControlColor': [0.0,0.0,1.0]
+        'mainControlColor': [0.0,0.0,1.0],
+        'stretchScale':1.0,
+        'squashScale':1.0
     },
     'LegIKComponent': {
         'name': 'defaultIKComponent',
         'type': 'LegIKComponent',
         'mainControlType': 'cube',
         'mainControlScale': 10.0,
-        'deformTargets': [],
+        'bindTargets': [],
         'parentSpace': None,
         'uprightSpace': None,
         'stretchEnabled': False,
         'squashEnabled': False,
         'icon': "/icons/icon-IKComponent.svg",
-        'noFlipKnee': False,
+        'poleVectorEnabled': True,
         'enabled': True,
         'spaceSwitchEnabled': False,
         'isLeafJoint': False,
         'useCustomCurve': False,
         'mainControlData': None,
         'poleCurveType': 'triangle',
-        'poleCurveScale': 5.0,
+        'poleCurveScale': 1.0,
+        'poleCurveDistance': 5.0,
         'baseCurveType':'cube',
         'baseCurveScale':10.0,
-        'baseCurveParentSpace':None,
-        'baseCurveUprightSpace':None,
+        'baseParentSpace':None,
+        'baseUprightSpace':None,
+        'baseSpaceSwitchEnabled':False,
         'offsetCurveType':'sphere',
         'offsetCurveScale':5.0,
-        'mainControlColor': [0.0,0.0,1.0]
+        'mainControlColor': [0.0,0.0,1.0],
+        'stretchScale':1.0,
+        'useCustomBaseCurve':False,
+        'useCustomOffsetCurve':False,
+        'useCustomPoleCurve':False,
+        'squashScale':1.0
     },
     'MultiFKComponent': {
         'name': 'defaultMultiFKComponent',
         'type': 'MultiFKComponent',
         'mainControlType': 'default',
         'mainControlScale': 10.0,
-        'deformTargets': [],
+        'bindTargets': [],
         'parentSpace': None,
         'uprightSpace': None,
         'stretchEnabled': False,
@@ -156,7 +169,9 @@ COMPONENT_TYPES = {
         'isLeafJoint': False,
         'useCustomCurve': False,
         'mainControlData': None,
-        'mainControlColor': [0.0,0.0,1.0]
+        'mainControlColor': [0.0,0.0,1.0],
+        'stretchScale':1.0,
+        'squashScale':1.0
     },
     'SpineIKComponent': {
         'name': 'defaultSpineIKComponent',
@@ -165,7 +180,7 @@ COMPONENT_TYPES = {
         'mainControlScale': 30.0,
         'childControlType': 'default',
         'childControlScale': 25.0,
-        'deformTargets': [],
+        'bindTargets': [],
         'aimAxis': [1,0,0],
         'parentSpace': None,
         'uprightSpace': None,
@@ -177,7 +192,14 @@ COMPONENT_TYPES = {
         'isLeafJoint': False,
         'useCustomCurve': False,
         'mainControlData': None,
-        'mainControlColor': [0.0,0.0,0.0,1.0]
+        'mainControlColor': [0.0,0.0,1.0],
+        'secondaryParentSpace': None,
+        'secondaryUprightSpace': None,
+        'secondarySpaceSwitchEnabled': False,
+        'useCustomSecondaryCurve':False,
+        'useCustomSpineCurve':False,
+        'stretchScale':1.0,
+        'squashScale':1.0
     }
 }
 
@@ -208,6 +230,10 @@ class safeCreate(object):
         pmc.undoInfo(closeChunk=True)
         if exc_val is not None:
             pmc.undo()
+
+class noneList:
+    def __getitem__(self, index):
+        return None
 
 ##############################
 #     Settings Classes       #
@@ -243,10 +269,10 @@ class ControlCurve():
         self._matchTarget(object=control, upVector=vector)
 
         # Set the override color of the curve
-        shape = control.getShape()
-        pmc.setAttr(shape.overrideColorRGB, self.color)
-        pmc.setAttr(shape.overrideRGBColors, True)
-        pmc.setAttr(shape.overrideEnabled, True)
+        for shape in control.getShapes():
+            pmc.setAttr(shape.overrideColorRGB, self.color)
+            pmc.setAttr(shape.overrideRGBColors, True)
+            pmc.setAttr(shape.overrideEnabled, True)
 
         return control
 
@@ -320,18 +346,14 @@ class BasicComponent(object):
     defaultControl = ControlCurve()
 
     def __init__(self, name='default', target=None, mainControlType='circle', parentSpace=None, uprightSpace=None,
-                 mainControlColor=[0.0,0.0,1.0], mainControlScale=10.0, spaceSwitchEnabled=False, utilityNodes=None,
+                 mainControlColor=[0.0,0.0,1.0], mainControlScale=10.0, spaceSwitchEnabled=False,
                  mainControlData=None, useCustomCurve=False, orientControlCurve=True, **kwargs):
 
         # Set up a logger for the component
         self.logger = addLogger(type(self).__name__)
-        #self.logger.setLevel(LOG_LEVEL)
-        #self.logger.addHandler(file_handler)
 
         # Set the standard variables
         self._name = name
-        self._utilityNodes = {}
-        self._constraints = []
         self._mainControl = None
         self._mainControlScale = mainControlScale
         self._mainControlColor = mainControlColor
@@ -346,7 +368,7 @@ class BasicComponent(object):
             self._mainControlData = mainControlData
         else:
             self.logger.debug('No curve data detected, setting to none')
-            self._mainControlData = [None, None, None, None, None]
+            self._mainControlData = noneList()
 
         # These will be overriden when parent() is called
         # But we want them to have a value to determine if its none or not
@@ -368,10 +390,6 @@ class BasicComponent(object):
                                              scale=mainControlScale,
                                              color=mainControlColor,
                                              curveData=self._mainControlData[0])
-
-        # Grab references to any existing utility nodes
-        if utilityNodes:
-            self._utilityNodes = {name: pmc.PyNode(node) for name, node in utilityNodes}
 
     #### Public Methods ####
 
@@ -408,7 +426,7 @@ class BasicComponent(object):
 
         return self._componentGroup
 
-    def parent(self, components, parentComponent, uprightComponent):
+    def parent(self, components, parent=None, upright=None):
         '''
         This sets up the parent connections.
         This is called separately from build so baking doesn't mess with parentSpace.
@@ -416,16 +434,21 @@ class BasicComponent(object):
         :param components: A list of active components
         '''
 
-        # Grab a reference to the parentSpace and upright Space components
-        # This is because parentspace and uprightspace are just the id of the component
-        self._parentSpace = parentComponent
-        self._uprightSpace = uprightComponent
+        # Assign the parent space and upright space components
+        # If the original value is None, use the override value argument
+        # (This is so sub components can have their parent determined by its creator)
+
+        self.parentComponent, self.uprightComponent = self._findParentComponents(components,
+                                                                                 self._parentSpace,
+                                                                                 self._uprightSpace)
+        if self.parentComponent is None:
+            self.parentComponent = parent
+        if self.uprightComponent is None:
+            self.uprightComponent = upright
 
         # Create a choice node to determine parentSpace
         parentSpaceChoiceNode = pmc.createNode('choice', name=self.name + '_parentSpaceChoice')
         uprightSpaceChoiceNode = pmc.createNode('choice', name=self.name + '_uprightSpaceChoice')
-        self._utilityNodes['parentSpaceChoiceNode'] = parentSpaceChoiceNode
-        self._utilityNodes['uprightSpaceChoiceNode'] = uprightSpaceChoiceNode
 
         if self.spaceSwitchEnabled:
             # Generate the names for the enums
@@ -434,26 +457,24 @@ class BasicComponent(object):
             enumString = ':'.join(names)
 
             # Find the values for the selected space
-            if parentComponent is None:
+            if self.parentComponent is None:
                 startParentIndex = 0
             else:
-                startParentIndex = names.index(parentComponent.name)
-            if uprightComponent is None:
+                startParentIndex = names.index(self.parentComponent.name)
+            if self.uprightComponent is None:
                 startUprightIndex = 0
             else:
-                startUprightIndex = names.index(uprightComponent.name)
+                startUprightIndex = names.index(self.uprightComponent.name)
 
             # Set the world option
             identityMatrix = dt.Matrix()
 
             worldParentMultMatrix = pmc.createNode('multMatrix', name=self.name + '_parentMult_0')
-            self._utilityNodes['parentSpaceMult_0'] = worldParentMultMatrix
             pmc.setAttr(worldParentMultMatrix.matrixIn[0], self.worldSpaceMatrix)
             pmc.setAttr(worldParentMultMatrix.matrixIn[1], identityMatrix)
             pmc.connectAttr(worldParentMultMatrix.matrixSum, parentSpaceChoiceNode.input[0])
 
             worldUprightMultMatrix = pmc.createNode('multMatrix', name=self.name + '_uprightMult_0')
-            self._utilityNodes['uprightSpaceMult_0'] = worldUprightMultMatrix
             pmc.setAttr(worldUprightMultMatrix.matrixIn[0], self.worldSpaceMatrix)
             pmc.setAttr(worldUprightMultMatrix.matrixIn[1], identityMatrix)
             pmc.connectAttr(worldUprightMultMatrix.matrixSum, uprightSpaceChoiceNode.input[0])
@@ -464,7 +485,6 @@ class BasicComponent(object):
                                    if value.name == comNames[index]][0]
 
                 multMatrix = pmc.createNode('multMatrix', name=self.name + '_parentMult_' + str(index+1))
-                self._utilityNodes['parentSpaceMult_' + str(index+1)] = multMatrix
                 pmc.setAttr(multMatrix.matrixIn[0], self.worldSpaceMatrix)
                 pmc.setAttr(multMatrix.matrixIn[1], parentComponent.worldSpaceMatrix.inverse())
                 pmc.connectAttr(parentComponent.matrixOutput.worldMatrix[0], multMatrix.matrixIn[2])
@@ -473,7 +493,6 @@ class BasicComponent(object):
                 parentComponent = [value for key, value in components.iteritems()
                                    if value.name == comNames[index]][0]
                 multMatrix = pmc.createNode('multMatrix', name=self.name + '_uprightMult_' + str(index+1))
-                self._utilityNodes['uprightSpaceMult_' + str(index+1)] = multMatrix
                 pmc.setAttr(multMatrix.matrixIn[0], self.worldSpaceMatrix)
                 pmc.setAttr(multMatrix.matrixIn[1], parentComponent.worldSpaceMatrix.inverse())
                 pmc.connectAttr(parentComponent.matrixOutput.worldMatrix[0], multMatrix.matrixIn[2])
@@ -496,30 +515,27 @@ class BasicComponent(object):
 
             # Just add the current parentSpace...
             multMatrix = pmc.createNode('multMatrix', name=self.name + '_parentMult')
-            self._utilityNodes['parentSpaceMult'] = multMatrix
             pmc.setAttr(multMatrix.matrixIn[0], self.worldSpaceMatrix)
             try:
-                pmc.setAttr(multMatrix.matrixIn[1], parentComponent.worldSpaceMatrix.inverse())
-                pmc.connectAttr(parentComponent.matrixOutput.worldMatrix[0], multMatrix.matrixIn[2])
+                pmc.setAttr(multMatrix.matrixIn[1], self.parentComponent.worldSpaceMatrix.inverse())
+                pmc.connectAttr(self.parentComponent.matrixOutput.worldMatrix[0], multMatrix.matrixIn[2])
             except AttributeError:
                 pmc.setAttr(multMatrix.matrixIn[1], identityMatrix)
             pmc.connectAttr(multMatrix.matrixSum, parentSpaceChoiceNode.input[0])
 
             # ...and the uprightSpace
             multMatrix = pmc.createNode('multMatrix', name=self.name + '_uprightMult')
-            self._utilityNodes['uprightSpaceMult'] = multMatrix
             pmc.setAttr(multMatrix.matrixIn[0], self.worldSpaceMatrix)
             try:
-                pmc.setAttr(multMatrix.matrixIn[1], uprightComponent.worldSpaceMatrix.inverse())
-                pmc.connectAttr(uprightComponent.matrixOutput.worldMatrix[0], multMatrix.matrixIn[2])
+                pmc.setAttr(multMatrix.matrixIn[1], self.uprightComponent.worldSpaceMatrix.inverse())
+                pmc.connectAttr(self.uprightComponent.matrixOutput.worldMatrix[0], multMatrix.matrixIn[2])
             except AttributeError:
                 pmc.setAttr(multMatrix.matrixIn[1], identityMatrix)
             pmc.connectAttr(multMatrix.matrixSum, uprightSpaceChoiceNode.input[0])
 
-
         # Connect the output of the choices to their corresponding multMatrix
-        pmc.connectAttr(parentSpaceChoiceNode.output, self._utilityNodes['parentMultMatrixNode'].matrixIn[0])
-        pmc.connectAttr(uprightSpaceChoiceNode.output, self._utilityNodes['uprightMultMatrixNode'].matrixIn[0])
+        pmc.connectAttr(parentSpaceChoiceNode.output, self.parentMatrixConnection.matrixIn[0])
+        pmc.connectAttr(uprightSpaceChoiceNode.output, self.uprightMatrixConnection.matrixIn[0])
 
         # Set the position of the localSpace
         self.localSpaceBuffer.setMatrix(identityMatrix, objectSpace=True)
@@ -580,10 +596,6 @@ class BasicComponent(object):
         uprightDecomposeMatrixNode = pmc.createNode('decomposeMatrix', name=self.name + '_uprightSpace_decompMatrix')
         parentMultMatrixNode = pmc.createNode('multMatrix', name=self.name + '_parentSpace_matrix')
         parentDecomposeMatrixNode = pmc.createNode('decomposeMatrix', name=self.name + '_parentSpace_decompMatrix')
-        self._utilityNodes['uprightMultMatrixNode'] = uprightMultMatrixNode
-        self._utilityNodes['parentMultMatrixNode'] = parentMultMatrixNode
-        self._utilityNodes['uprightDecomposeMatrixNode'] = uprightDecomposeMatrixNode
-        self._utilityNodes['parentDecomposeMatrixNode'] = parentDecomposeMatrixNode
 
         # For now set the parentSpace and upright space to world (The identity Matrix)
         # Then set the parentSpace variable to none
@@ -608,6 +620,9 @@ class BasicComponent(object):
         # Connect the parentSpace's scale to the parentSpace Group
         # This will allow the curves to scale with the global control
         pmc.connectAttr(parentDecomposeMatrixNode.outputScale, self.parentSpaceBuffer.scale)
+
+        self.parentMatrixConnection = parentMultMatrixNode
+        self.uprightMatrixConnection = uprightMultMatrixNode
 
     def _createMainControl(self):
 
@@ -643,6 +658,28 @@ class BasicComponent(object):
         else:
             return None
 
+    def _findParentComponents(self, components, parentSpace, uprightSpace):
+
+        if parentSpace is not None:
+            try:
+                parent = components[parentSpace]
+            except KeyError or TypeError:
+                self.logger.info('Parent id: %s not found in component data for %s, setting parent to world',
+                                 str(parentSpace), self.name)
+                parent = None
+        else:
+            parent = None
+
+        if uprightSpace is not None:
+            try:
+                upright = components[uprightSpace]
+            except KeyError or TypeError:
+                upright = None
+        else:
+            upright = None
+
+        return parent, upright
+
     #### Public Properties ####
 
     @property
@@ -656,6 +693,7 @@ class BasicComponent(object):
     @property
     def data(self):
 
+        '''
         def getName(target):
             try:
                 return str(target.name)
@@ -676,6 +714,8 @@ class BasicComponent(object):
         arguments['mainControlData'] = self.controlCurveData
 
         return arguments
+        '''
+        raise NotImplementedError
 
     @property
     def printData(self):
@@ -706,11 +746,11 @@ class BasicComponent(object):
 
     @property
     def parentSpace(self):
-        return self._parentSpace
+        return self.parentComponent
 
     @property
     def uprightSpace(self):
-        return self._uprightSpace
+        return self.uprightComponent
 
     @property
     def matrixOutput(self):
@@ -754,6 +794,14 @@ class BasicComponent(object):
             return [self._getCurveData(self.matrixOutput)]
         else:
             return self._mainControlData
+
+    @property
+    def sceneData(self):
+        data = {}
+        data['mainControlData'] = self.controlCurveData
+
+
+        return data
 
 class Rig(object):
     '''
@@ -818,6 +866,7 @@ class Rig(object):
         # This ensures that all components exist before parenting occurs
         for id, com in self._components.iteritems():
 
+            '''
             try:
                 parent = self._components[self._componentData[id]['parentSpace']]
             except KeyError:
@@ -829,8 +878,9 @@ class Rig(object):
                 upright = self._components[self._componentData[id]['uprightSpace']]
             except KeyError:
                 upright = None
+            '''
 
-            com.parent(self._components, parent, upright)
+            com.parent(self._components)
 
     def bind(self):
         # For each component in the rig, bind to its target
@@ -1060,9 +1110,7 @@ class Rig(object):
 
         for id, component in self._components.iteritems():
 
-            data = component.controlCurveData
-            sceneData[id] = {}
-            sceneData[id]['mainControlData'] = component.controlCurveData
+            sceneData[id] = component.sceneData
 
         return sceneData
 
@@ -1090,6 +1138,9 @@ class Rig(object):
 
             del component
 
+        if len(self._componentData) == 0:
+            message.append('Cannot create empty rig!')
+
         if len(message) > 0:
             error = "\n".join(message)
 
@@ -1102,7 +1153,7 @@ class FKComponent(BasicComponent):
     '''
 
     def __init__(self, stretchTarget=None, stretchEnabled=False, squashEnabled=False,
-                 isLeafJoint=False, aimAtChild=True, **kwargs):
+                 isLeafJoint=False, aimAtChild=True, stretchScale=1.0, squashScale=1.0, **kwargs):
         BasicComponent.__init__(self, **kwargs)
 
         # Establish the direction to be used when orienting
@@ -1118,7 +1169,8 @@ class FKComponent(BasicComponent):
         self._stretchTarget = stretchTarget
         self._stretchEnabled = stretchEnabled
         self._squashEnabled = squashEnabled
-        self._stretchScale = 1.0
+        self._stretchScale = stretchScale
+        self._squashScale = squashScale
         self._stretchMin = 0.0
         self._isLeafJoint = isLeafJoint
         self._aimAtChild = aimAtChild
@@ -1154,7 +1206,6 @@ class FKComponent(BasicComponent):
 
         # Create a decompose matrix to convert the inputs world location to srt values
         decompMatrix = pmc.createNode('decomposeMatrix', name='outputConnectionDecomp')
-        self._utilityNodes['outputConnectionDecomp'] = decompMatrix
         pmc.connectAttr(input.worldMatrix[0], decompMatrix.inputMatrix)
 
         # Connect the output to the output buffer
@@ -1193,7 +1244,7 @@ class FKComponent(BasicComponent):
         # Create an orient output group, this will actually be aimed
         self._mainControlOrientOutput = pmc.group(empty=True, name=self.name + '_orient_srt')
         pmc.parent(self._mainControlOrientOutput, self._mainControl)
-        
+
         # Create a control output group, this will allow for offset transformations from the control (such as aiming)
         self._mainControlOutput = pmc.group(empty=True, name=self.name + '_output_srt')
         pmc.parent(self._mainControlOutput, self._mainControlOrientOutput)
@@ -1218,17 +1269,12 @@ class FKComponent(BasicComponent):
         startJointTranslateWorldMatrix = pmc.createNode('multMatrix',
                                                         name=self.name+'_startJointTranslateMatrix_to_WorldMatrix')
         squashScalePower = pmc.createNode('multiplyDivide', name=self.name+'_squashPower')
+        stretchScalePower = pmc.createNode('multiplyDivide', name=self.name + '_stretchPower')
         pmc.setAttr(squashScalePower.operation, 'Power')
 
         # Grab the two points we will base distance on
         point1 = self._stretchTarget.matrixOutput
         point2 = self.matrixOutput
-
-        # Add utility nodes we care about into the utility nodes dictionary
-        self._utilityNodes['point1SpaceSwitch'] = point1SpaceSwitch
-        self._utilityNodes['point2SpaceSwitch'] = point2SpaceSwitch
-        self._utilityNodes['outMax'] = outputMax
-        self._utilityNodes['inverseOutput'] = inverseOutput
 
         # Calculate the max distance
         maxDistance = point1.getTranslation('world').distanceTo(point2.getTranslation('world'))
@@ -1269,29 +1315,34 @@ class FKComponent(BasicComponent):
 
         # Connect the inverse node to the power node
         pmc.connectAttr(inverseOutput.outFloat, squashScalePower.input1X)
-        pmc.addAttr(self._mainControl, ln='stretchScale', sn='ss', nn='Stretch Scale',
+        pmc.connectAttr(outputMax.outFloat, stretchScalePower.input1X)
+        pmc.addAttr(self._mainControl, ln='stretchScale', sn='sts', nn='Stretch Scale',
                     hasMinValue=True, minValue=self._stretchMin, hidden=False, keyable=True)
+        pmc.addAttr(self._mainControl, ln='squashScale', sn='sqs', nn='Squash Scale',
+                    hasMinValue=True, minValue=self._stretchMin, hidden=False, keyable=True)
+        pmc.setAttr(self._mainControl.squashScale, self._squashScale)
         pmc.setAttr(self._mainControl.stretchScale, self._stretchScale)
-        pmc.connectAttr(self._mainControl.stretchScale, squashScalePower.input2X)
+        pmc.connectAttr(self._mainControl.squashScale, squashScalePower.input2X)
+        pmc.connectAttr(self._mainControl.stretchScale, stretchScalePower.input2X)
 
         # Connect to the parent space
         try:
             pmc.connectAttr(self.parentSpace.matrixOutput.parentInverseMatrix,
-                            self._utilityNodes['point1SpaceSwitch'].matrixIn[1], force=True)
+                            point1SpaceSwitch.matrixIn[1], force=True)
             pmc.connectAttr(self.parentSpace.matrixOutput.parentInverseMatrix,
-                            self._utilityNodes['point2SpaceSwitch'].matrixIn[1], force=True)
+                            point2SpaceSwitch.matrixIn[1], force=True)
             pmc.connectAttr(self.parentSpace.matrixOutput.inverseMatrix,
-                            self._utilityNodes['point1SpaceSwitch'].matrixIn[2], force=True)
+                            point1SpaceSwitch.matrixIn[2], force=True)
             pmc.connectAttr(self.parentSpace.matrixOutput.inverseMatrix,
-                            self._utilityNodes['point2SpaceSwitch'].matrixIn[2], force=True)
+                            point2SpaceSwitch.matrixIn[2], force=True)
         except AttributeError:
             identityMatrix = dt.Matrix()
-            pmc.setAttr(self._utilityNodes['point1SpaceSwitch'].matrixIn[1], identityMatrix, force=True)
-            pmc.setAttr(self._utilityNodes['point2SpaceSwitch'].matrixIn[1], identityMatrix, force=True)
+            pmc.setAttr(point1SpaceSwitch.matrixIn[1], identityMatrix, force=True)
+            pmc.setAttr(point2SpaceSwitch.matrixIn[1], identityMatrix, force=True)
 
         # Connect to stretch joint scales
         if self.stretchEnabled:
-            pmc.connectAttr(self._utilityNodes['outMax'].outFloat, self._stretchTarget.stretchInput.scaleX, force=True)
+            pmc.connectAttr(stretchScalePower.outputX, self._stretchTarget.stretchInput.scaleX, force=True)
         if self.squashEnabled:
             pmc.connectAttr(squashScalePower.outputX, self._stretchTarget.stretchInput.scaleY, force=True)
             pmc.connectAttr(squashScalePower.outputX, self._stretchTarget.stretchInput.scaleZ, force=True)
@@ -1394,13 +1445,6 @@ class FKComponent(BasicComponent):
         translateDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_parentSpaceDecomp')
         rotateDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_jointOrientDecomp')
         scaleDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_scaleDecomp')
-        self._utilityNodes[self.name+'parentSpaceMult'] = parentSpaceMult
-        self._utilityNodes[self.name+'jointOrientMult'] = jointOrientMult
-        self._utilityNodes[self.name+'jointOrientCompose'] = jointOrientCompose
-        self._utilityNodes[self.name+'transposeMatrix'] = transposeMatrix
-        self._utilityNodes[self.name+'translateDecompose'] = translateDecompose
-        self._utilityNodes[self.name+'rotateDecompose'] = rotateDecompose
-        self._utilityNodes[self.name+'scaleCompose'] = scaleDecompose
 
         # Connect the parentspace conversion mult matrix
         # This will bring the output into the targets space
@@ -1476,6 +1520,7 @@ class FKComponent(BasicComponent):
     @property
     def data(self):
 
+        '''
         def getName(target):
             try:
                 return str(target.name)
@@ -1496,6 +1541,8 @@ class FKComponent(BasicComponent):
         arguments['utilityNodes'] = {name: node.name() for name, node in self._utilityNodes.iteritems()}
 
         return arguments
+        '''
+        raise NotImplementedError
 
     @property
     def targets(self):
@@ -1547,13 +1594,13 @@ class MultiFKComponent(FKComponent):
     Basically this is a 'fake' component, its really just outputing all commands to its child components.
     '''
 
-    def __init__(self, deformTargets=[], **kwargs):
+    def __init__(self, bindTargets=[], **kwargs):
 
         # Init the base class (this will set up a ton of starting variables we need)
         FKComponent.__init__(self, **kwargs)
 
         # Grab a reference to all input deform targets
-        self._deformTargets = [pmc.PyNode(target) for target in deformTargets]
+        self._bindTargets = [pmc.PyNode(target) for target in bindTargets]
 
         # Sort the deform targets by hierarchy
         self._sortTargets()
@@ -1571,7 +1618,7 @@ class MultiFKComponent(FKComponent):
         # Create a child component for the base component (This will be the base parent)
         # This is also the only component without squash and stretch control
         self._childComponents.append(FKComponent(name=self.name + str(1),
-                                               target=self._deformTargets[self.startIndex],
+                                               target=self._bindTargets[self.startIndex],
                                                spaceSwitchEnabled=self.spaceSwitchEnabled,
                                                stretchTarget=None,
                                                stretchEnabled=False,
@@ -1579,15 +1626,16 @@ class MultiFKComponent(FKComponent):
                                                mainControlType=self._mainControlType.curveType,
                                                mainControlScale=self._mainControlScale,
                                                mainControlColor=self._mainControlColor,
-                                               mainControlData=self._mainControlData,
-                                               isLeafJoint=self._isLeafJoint
+                                               mainControlData=[self._mainControlData[0]],
+                                               isLeafJoint=self._isLeafJoint,
+                                               useCustomCurve=self._useCustomCurve
                                                ))
 
         # Create a child component for each middle component
         # For parent space we just use the index of the parent component in our child component list
         for index in self.middleIndex:
             self._childComponents.append(FKComponent(name=self.name + str(index+1),
-                                                     target=self._deformTargets[index],
+                                                     target=self._bindTargets[index],
                                                      spaceSwitchEnabled=False,
                                                      stretchTarget = self._childComponents[index - 1],
                                                      stretchEnabled=self._squashEnabled,
@@ -1595,13 +1643,14 @@ class MultiFKComponent(FKComponent):
                                                      mainControlType=self._mainControlType.curveType,
                                                      mainControlScale=self._mainControlScale,
                                                      mainControlColor=self._mainControlColor,
-                                                     mainControlData=self._mainControlData,
-                                                    isLeafJoint=self._isLeafJoint
+                                                     mainControlData=[self._mainControlData[index]],
+                                                     isLeafJoint=self._isLeafJoint,
+                                                     useCustomCurve=self._useCustomCurve
                                                      ))
 
         # Create a child component for the endJoint
         self._childComponents.append(FKComponent(name=self.name + str(self.endIndex+1),
-                                                 target=self._deformTargets[self.endIndex],
+                                                 target=self._bindTargets[self.endIndex],
                                                  spaceSwitchEnabled=False,
                                                  stretchTarget=self._childComponents[self.endIndex-1],
                                                  stretchEnabled=self._squashEnabled,
@@ -1609,8 +1658,9 @@ class MultiFKComponent(FKComponent):
                                                  mainControlType=self._mainControlType.curveType,
                                                  mainControlScale=self._mainControlScale,
                                                  mainControlColor=self._mainControlColor,
-                                                 mainControlData=self._mainControlData,
-                                                 isLeafJoint=self._isLeafJoint
+                                                 mainControlData=[self._mainControlData[self.endIndex]],
+                                                 isLeafJoint=self._isLeafJoint,
+                                                 useCustomCurve=self._useCustomCurve
                                                  ))
 
     def _sortTargets(self):
@@ -1619,7 +1669,7 @@ class MultiFKComponent(FKComponent):
         sortedTargets = []
 
         # Add each deform target to the list, children placed after their parents
-        for target in self._deformTargets:
+        for target in self._bindTargets:
             for index in range(len(sortedTargets)):
                 if self._isLeafJoint:
                     target1 = target.getParent()
@@ -1638,7 +1688,7 @@ class MultiFKComponent(FKComponent):
                 sortedTargets.append(target)
 
         # Update the deform target list
-        self._deformTargets = sortedTargets
+        self._bindTargets = sortedTargets
 
     #### public methods ####
 
@@ -1653,17 +1703,31 @@ class MultiFKComponent(FKComponent):
 
         return self._componentGroup
 
-    def parent(self, components, parentComponent, uprightComponent):
+    def parent(self, components, upright=None, parent=None):
 
+        # Add the default parent and upright value
+        self.parentComponent, self.uprightComponent = self._findParentComponents(components,
+                                                                                 self._parentSpace,
+                                                                                 self._uprightSpace)
+        if self.parentComponent is None:
+            self.parentComponent = parent
+        if self.uprightComponent is None:
+            self.uprightComponent = upright
+
+        # Remove this component from the component list
         componentList = {key: value for key, value in components.iteritems() if value.name != self._name}
 
+        # For each child component, assign its parents
         for index in range(len(self._childComponents)):
-
             if index == 0:
-                self._childComponents[index].parent(componentList, parentComponent, uprightComponent)
+                # The first component gets the actual parent and upright values
+                self._childComponents[index].parent(componentList, parent=self.parentComponent,
+                                                    upright=self.uprightComponent)
             else:
+                # The others are parented to the previous component
                 previousParent = self._childComponents[index - 1]
-                self._childComponents[index].parent(self._childComponents, previousParent, previousParent)
+                self._childComponents[index].parent(self._childComponents, parent=previousParent,
+                                                    upright=previousParent)
 
     def zero(self):
         # Zero each of the child components
@@ -1689,10 +1753,10 @@ class MultiFKComponent(FKComponent):
     @property
     def targets(self):
 
-        targets = self._deformTargets
+        targets = self._bindTargets
 
         if self._isLeafJoint:
-            targets.extend([target.getParent() for target in self._deformTargets])
+            targets.extend([target.getParent() for target in self._bindTargets])
 
         return targets
 
@@ -1710,50 +1774,70 @@ class MultiFKComponent(FKComponent):
 
     @property
     def endIndex(self):
-        return len(self._deformTargets)-1
+        return len(self._bindTargets)-1
 
     @property
     def middleIndex(self):
-        return [index for index in range(len(self._deformTargets))
-                if index is not 0 and index is not len(self._deformTargets) - 1]
+        return [index for index in range(len(self._bindTargets))
+                if index is not 0 and index is not len(self._bindTargets) - 1]
 
     @property
     def ready(self):
         error = None
 
-        if self._deformTargets < 2:
+        if self._bindTargets < 2:
             error = 'Needs at least 2 deform targets'
 
         return error
+
+    @property
+    def controlCurveData(self):
+
+        # Grab a list of the cv data for the main curve
+
+        if self._childComponents[0].matrixOutput is not None:
+            return [self._getCurveData(component.matrixOutput) for component in self._childComponents]
+        else:
+            return self._mainControlData
 
 class IKComponent(MultiFKComponent):
     '''
     A multiFK Component in which all controls are parented to an ik chain.
     '''
 
-    def __init__(self, noFlipKnee=False, poleCurveType='triangle', poleCurveScale = 5.0,
-                 baseCurveType='cube', baseCurveScale=10.0, baseCurveParentSpace=None, baseCurveUprightSpace=None,
-                 offsetCurveType='sphere', offsetCurveScale=5.0, **kwargs):
+    def __init__(self, poleVectorEnabled=True, poleCurveType='triangle', poleCurveScale = 1.0, poleCurveDistance=10.0,
+                 baseCurveType='cube', baseCurveScale=10.0, baseParentSpace=None, baseUprightSpace=None,
+                 baseSpaceSwitchEnabled=False, offsetCurveType='sphere', offsetCurveScale=5.0,
+                 useCustomOffsetCurve=False, useCustomPoleCurve=False, useCustomBaseCurve=None, **kwargs):
 
         # Store the IK variables
-        self._noFlipKnee = noFlipKnee
+        self._poleVectorEnabled = poleVectorEnabled
+        self._poleCurveDistance = poleCurveDistance
         self._offsetCurveType = offsetCurveType
         self._offsetCurveScale = offsetCurveScale
-        self._baseCurveParentSpace = baseCurveParentSpace
-        self._baseCurveUprightSpace = baseCurveUprightSpace
+        self._useCustomOffsetCurve = useCustomOffsetCurve
+        self._baseParentSpace = baseParentSpace
+        self._baseUprightSpace = baseUprightSpace
+        self._baseSpaceSwitchEnabled = baseSpaceSwitchEnabled
 
         # Create the multifk components
         MultiFKComponent.__init__(self, **kwargs)
 
         # Create the control curve instance for the pole vector
+        if useCustomPoleCurve:
+            poleCurve = self._mainControlData[1]
+        else:
+            poleCurve = None
         self._poleControlCurveType = ControlCurve(curveType=poleCurveType,
                                                   color=self._mainControlColor,
-                                                  curveData=self._mainControlData[1],
+                                                  curveData=poleCurve,
                                                   scale=poleCurveScale)
 
         # Create a component for the ik handle
         self.ikComponent = BasicComponent(name=self.name + '_IKControl',
-                                                 target=self._deformTargets[self.endIndex],
+                                                 target=self._bindTargets[self.endIndex],
+                                                 parentSpace=self._parentSpace,
+                                                 uprightSpace=self._uprightSpace,
                                                  spaceSwitchEnabled= self.spaceSwitchEnabled,
                                                  mainControlType=self._mainControlType.curveType,
                                                  mainControlScale=self._mainControlScale,
@@ -1764,13 +1848,15 @@ class IKComponent(MultiFKComponent):
 
         # Create a component for the base controller
         self.baseComponent = BasicComponent(name=self.name + '_IKControl',
-                                                 target=self._deformTargets[self.startIndex],
-                                                 spaceSwitchEnabled= self.spaceSwitchEnabled,
+                                                 target=self._bindTargets[self.startIndex],
+                                                 parentSpace=baseParentSpace,
+                                                 uprightSpace=baseUprightSpace,
+                                                 spaceSwitchEnabled= baseSpaceSwitchEnabled,
                                                  mainControlType=baseCurveType,
                                                  mainControlScale=baseCurveScale,
                                                  mainControlColor=self._mainControlColor,
                                                  mainControlData=[self._mainControlData[2]],
-                                                 useCustomCurve=self._useCustomCurve,
+                                                 useCustomCurve=useCustomBaseCurve,
                                                  orientControlCurve=False)
 
     #### public methods ####
@@ -1789,7 +1875,7 @@ class IKComponent(MultiFKComponent):
         pmc.parent(self.baseComponent.componentGroup, self._componentGroup)
 
         # If not using a no flip knee setup, create the pole control
-        if not self._noFlipKnee:
+        if self._poleVectorEnabled:
             self._poleControl = self._poleControlCurveType.create(upVector=[0,1,0], name=self.name+'_main')
             pmc.parent(self._poleControl, self.baseComponent.matrixOutput)
             self._poleControl.setTranslation(self._getPolePoint(), worldSpace=True)
@@ -1802,8 +1888,9 @@ class IKComponent(MultiFKComponent):
 
         return self._componentGroup
 
-    def parent(self, components, parentComponent, uprightComponent):
+    def parent(self, components, parent=None, upright=None):
 
+        # Remove this component from the component list
         componentList = {key: value for key, value in components.iteritems() if value.name != self._name}
 
         # Create the ik chain
@@ -1811,13 +1898,14 @@ class IKComponent(MultiFKComponent):
 
         # Parent each sub component to the corresponding joint
         for index in range(len(self._childComponents)):
-            self._childComponents[index].parent(self.ikChainSpaces, self.ikChainSpaces[index], self.ikChainSpaces[index])
+            self._childComponents[index].parent(self.ikChainSpaces, parent=self.ikChainSpaces[index],
+                                                upright=self.ikChainSpaces[index])
 
         # Parent the ikComponent
-        self.ikComponent.parent(componentList, parentComponent, uprightComponent)
+        self.ikComponent.parent(componentList)
 
         #Parent the base component
-        self.baseComponent.parent(componentList, parentComponent, uprightComponent)
+        self.baseComponent.parent(componentList)
 
     def snap(self):
 
@@ -1825,12 +1913,12 @@ class IKComponent(MultiFKComponent):
 
         self.baseComponent.snap()
 
-        if not self._noFlipKnee:
+        if self._poleVectorEnabled:
             self._poleControl.setTranslation(self._getPolePoint(), worldSpace=True)
 
         for index in range(len(self._childComponents)):
             self._childComponents[index].matrixOutput.setMatrix(
-                self._deformTargets[index].getMatrix(worldSpace=True), worldSpace=True)
+                self._bindTargets[index].getMatrix(worldSpace=True), worldSpace=True)
 
     def bake(self, frame):
 
@@ -1838,7 +1926,7 @@ class IKComponent(MultiFKComponent):
 
         self.baseComponent.bake(frame=frame)
 
-        if not self._noFlipKnee:
+        if self._poleVectorEnabled:
             pmc.setKeyframe(self._poleControl, t=frame)
 
         for index in range(len(self._childComponents)):
@@ -1853,7 +1941,7 @@ class IKComponent(MultiFKComponent):
         # Create a child component for the base component (This will be the base parent)
         # This is also the only component without squash and stretch control
         self._childComponents.append(FKComponent(name=self.name + str(1),
-                                                 target=self._deformTargets[self.startIndex],
+                                                 target=self._bindTargets[self.startIndex],
                                                  spaceSwitchEnabled= False,
                                                  stretchTarget=None,
                                                  stretchEnabled=False,
@@ -1862,14 +1950,15 @@ class IKComponent(MultiFKComponent):
                                                  mainControlScale=self._offsetCurveScale,
                                                  mainControlColor=self._mainControlColor,
                                                  mainControlData=[self._mainControlData[3]],
-                                                 isLeafJoint=self._isLeafJoint
+                                                 isLeafJoint=self._isLeafJoint,
+                                                 useCustomCurve=self._useCustomOffsetCurve
                                                  ))
 
         # Create a child component for each middle component
         # For parent space we just use the index of the parent component in our child component list
         for index in self.middleIndex:
             self._childComponents.append(FKComponent(name=self.name + str(index + 1),
-                                                     target=self._deformTargets[index],
+                                                     target=self._bindTargets[index],
                                                      spaceSwitchEnabled=False,
                                                      stretchTarget=self._childComponents[index - 1],
                                                      stretchEnabled=self._squashEnabled,
@@ -1877,13 +1966,14 @@ class IKComponent(MultiFKComponent):
                                                      mainControlType=self._offsetCurveType,
                                                      mainControlScale=self._offsetCurveScale,
                                                      mainControlColor=self._mainControlColor,
-                                                     mainControlData=[self._mainControlData[3]],
-                                                     isLeafJoint=self._isLeafJoint
+                                                     mainControlData=[self._mainControlData[3+index]],
+                                                     isLeafJoint=self._isLeafJoint,
+                                                     useCustomCurve=self._useCustomOffsetCurve
                                                      ))
 
         # Create a child component for the endJoint
         self._childComponents.append(FKComponent(name=self.name + str(self.endIndex + 1),
-                                                 target=self._deformTargets[self.endIndex],
+                                                 target=self._bindTargets[self.endIndex],
                                                  spaceSwitchEnabled=False,
                                                  stretchTarget=self._childComponents[self.endIndex - 1],
                                                  stretchEnabled=self._squashEnabled,
@@ -1891,8 +1981,9 @@ class IKComponent(MultiFKComponent):
                                                  mainControlType=self._offsetCurveType,
                                                  mainControlScale=self._offsetCurveScale,
                                                  mainControlColor=self._mainControlColor,
-                                                 mainControlData=[self._mainControlData[3]],
-                                                 isLeafJoint=self._isLeafJoint
+                                                 mainControlData=[self._mainControlData[4+len(self.middleIndex)]],
+                                                 isLeafJoint=self._isLeafJoint,
+                                                 useCustomCurve=self._useCustomOffsetCurve
                                                  ))
 
     def _createIKChain(self):
@@ -1909,8 +2000,8 @@ class IKComponent(MultiFKComponent):
         pmc.parent(self.ikChainGroup, self.componentGroup)
 
         # Create a duplicate of each deform joint
-        for index in range(len(self._deformTargets)):
-            joint = self._deformTargets[index]
+        for index in range(len(self._bindTargets)):
+            joint = self._bindTargets[index]
             duplicate = pmc.duplicate(joint, po=True, name=joint.name() + '_ikchain')[0]
             pmc.hide(duplicate)
             self.ikChain.append(duplicate)
@@ -1958,9 +2049,8 @@ class IKComponent(MultiFKComponent):
         pmc.connectAttr(self.ikComponent.matrixOutput.twist, self._handle.twist)
 
         # If not a no flip knee, constrain the polevector
-        if not self._noFlipKnee:
-            self._constraints.append(pmc.poleVectorConstraint(self._poleControl, self._handle,
-                                                              name=self.name + '_poleVectorConstraint'))
+        if self._poleVectorEnabled:
+            pmc.poleVectorConstraint(self._poleControl, self._handle,name=self.name + '_poleVectorConstraint')
 
         # If squash and stretch enabled, setup squash and stretch
         if self._squashEnabled or self._stretchEnabled:
@@ -1975,11 +2065,6 @@ class IKComponent(MultiFKComponent):
             pmc.setAttr(lengthNormalize.operation, 3)
             outputMax = pmc.createNode('floatMath', name=self.name + '_outputMax')
             pmc.setAttr(outputMax.operation, 5)
-            self._utilityNodes['ikChainLength'] = ikChainLength
-            self._utilityNodes['lengthNormalize'] = lengthNormalize
-            self._utilityNodes['outputMax'] = outputMax
-            self._utilityNodes['point1SpaceSwitch'] = point1SpaceSwitch
-            self._utilityNodes['point2SpaceSwitch'] = point2SpaceSwitch
 
             # Grab the inverse of the ik components parent
             # This removes global scale from the distance calculation
@@ -2015,9 +2100,9 @@ class IKComponent(MultiFKComponent):
 
     def _getPolePoint(self):
         # Grab the worldspace vectors of each points position
-        startPoint = self._deformTargets[0].getTranslation(space='world')
-        elbowPoint = self._deformTargets[1].getTranslation(space='world')
-        endPoint = self._deformTargets[self.endIndex].getTranslation(space='world')
+        startPoint = self._bindTargets[0].getTranslation(space='world')
+        elbowPoint = self._bindTargets[1].getTranslation(space='world')
+        endPoint = self._bindTargets[self.endIndex].getTranslation(space='world')
 
         # Find the midpoint between the start and end joint
         averagePoint = (startPoint + endPoint) / 2
@@ -2026,7 +2111,7 @@ class IKComponent(MultiFKComponent):
         elbowDirection = elbowPoint - averagePoint
 
         # Multiply the direction by 2 to extend the range
-        polePoint = (elbowDirection * 5) + averagePoint
+        polePoint = (elbowDirection * self._poleCurveDistance) + averagePoint
 
         return polePoint
 
@@ -2040,21 +2125,21 @@ class IKComponent(MultiFKComponent):
 
         error = None
 
-        if not len(self._deformTargets) < 3:
+        if not len(self._bindTargets) < 3:
             error = 'Requires at least three deform targets'
 
         return error
 
     @property
     def target(self):
-        return self._deformTargets[self.endIndex]
+        return self._bindTargets[self.endIndex]
 
     @property
     def targets(self):
-        targets = self._deformTargets
+        targets = self._bindTargets
 
         if self._isLeafJoint:
-            targets.extend([target.getParent() for target in self._deformTargets])
+            targets.extend([target.getParent() for target in self._bindTargets])
 
         return targets
 
@@ -2070,7 +2155,7 @@ class IKComponent(MultiFKComponent):
     def ready(self):
         error = None
 
-        if self._deformTargets < 3:
+        if self._bindTargets < 3:
             error = 'Needs at least 3 deform targets'
 
         return error
@@ -2085,9 +2170,10 @@ class IKComponent(MultiFKComponent):
             poleControl = None
 
         if self.ikComponent.matrixOutput is not None:
-            return [self._getCurveData(self.ikComponent.matrixOutput), self._getCurveData(poleControl),
-                    self._getCurveData(self.baseComponent.matrixOutput),
-                    self._getCurveData(self._childComponents[1].matrixOutput)]
+            data = [self._getCurveData(self.ikComponent.matrixOutput), self._getCurveData(poleControl),
+                    self._getCurveData(self.baseComponent.matrixOutput)]
+            data += [self._getCurveData(component.matrixOutput) for component in self._childComponents]
+            return data
         else:
             return self._mainControlData
 
@@ -2097,14 +2183,20 @@ class SpineIKComponent(MultiFKComponent):
     of a spline IK setup
     '''
 
-    def __init__(self, spineControlScale=15, spineControlType='default',
-                 secondaryParentSpace=None, secondaryUprightSpace=None, **kwargs):
+    def __init__(self, spineControlScale=15, spineControlType='default', useCustomSpineCurve=False,
+                 secondaryParentSpace=None, secondaryUprightSpace=None, secondarySpaceSwitchEnabled=False,
+                 useCustomSecondaryCurve = False, **kwargs):
 
         # Set up initial variables
         self._spineControlType = spineControlType
         self._spineControlScale = spineControlScale
         self._secondaryParentSpace = secondaryParentSpace
         self._secondaryUprightSpace = secondaryUprightSpace
+        self._secondarySpaceSwitchEnabled = secondarySpaceSwitchEnabled
+        self._useCustomSecondaryCurve = useCustomSecondaryCurve
+        self._useCustomSpineCurve = useCustomSpineCurve
+
+        self._middleComponents = []
 
         # Initialize the base class
         MultiFKComponent.__init__(self, **kwargs)
@@ -2120,7 +2212,7 @@ class SpineIKComponent(MultiFKComponent):
         # Create a child component for the base of the spine (This will be the base parent)
         # This is also the only component without squash and stretch control
         self._childComponents.append(FKComponent(name=self.name + '_base',
-                                                 target=self._deformTargets[self.startIndex],
+                                                 target=self._bindTargets[self.startIndex],
                                                  spaceSwitchEnabled=True,
                                                  stretchTarget=None,
                                                  stretchEnabled=False,
@@ -2131,7 +2223,9 @@ class SpineIKComponent(MultiFKComponent):
                                                  mainControlColor=self._mainControlColor,
                                                  mainControlData=[self._mainControlData[0]],
                                                  isLeafJoint=self._isLeafJoint,
-                                                 aimAtChild=False
+                                                 aimAtChild=False,
+                                                 parentSpace=self._parentSpace,
+                                                 uprightSpace=self._uprightSpace
                                                  ))
         self.baseComponent = self._childComponents[0]
 
@@ -2139,7 +2233,7 @@ class SpineIKComponent(MultiFKComponent):
         # For parent space we just use the index of the parent component in our child component list
         for index in self.middleIndex:
             self._childComponents.append(FKComponent(name=self.name + str(index + 1),
-                                                     target=self._deformTargets[index],
+                                                     target=self._bindTargets[index],
                                                      spaceSwitchEnabled=False,
                                                      stretchTarget=self._childComponents[index - 1],
                                                      stretchEnabled=self._squashEnabled,
@@ -2147,26 +2241,29 @@ class SpineIKComponent(MultiFKComponent):
                                                      mainControlType=self._spineControlType,
                                                      mainControlScale=self._spineControlScale,
                                                      mainControlColor=self._mainControlColor,
-                                                     mainControlData=[self._mainControlData[2]],
+                                                     mainControlData=[self._mainControlData[index+1]],
                                                      isLeafJoint=self._isLeafJoint,
-                                                     useCustomCurve=self._useCustomCurve,
+                                                     useCustomCurve=self._useCustomSpineCurve,
                                                      aimAtChild=False
                                                      ))
+            self._middleComponents.append(self._childComponents[index])
 
         # Create a child component for the endJoint
         self._childComponents.append(FKComponent(name=self.name + str(self.endIndex + 1),
-                                                 target=self._deformTargets[self.endIndex],
-                                                 spaceSwitchEnabled=True,
+                                                 target=self._bindTargets[self.endIndex],
+                                                 spaceSwitchEnabled=self._secondarySpaceSwitchEnabled,
                                                  stretchTarget=self._childComponents[self.endIndex - 1],
                                                  stretchEnabled=self._squashEnabled,
                                                  squashEnabled=self._stretchEnabled,
                                                  mainControlType=self._mainControlType.curveType,
                                                  mainControlScale=self._mainControlScale,
                                                  mainControlColor=self._mainControlColor,
-                                                 useCustomCurve=self._useCustomCurve,
+                                                 useCustomCurve=self._useCustomSecondaryCurve,
                                                  mainControlData=[self._mainControlData[1]],
                                                  isLeafJoint=self._isLeafJoint,
-                                                 aimAtChild=False
+                                                 aimAtChild=False,
+                                                 parentSpace=self._secondaryParentSpace,
+                                                 uprightSpace=self._secondaryUprightSpace
                                                  ))
         self.endComponent= self._childComponents[self.endIndex]
 
@@ -2203,15 +2300,12 @@ class SpineIKComponent(MultiFKComponent):
 
             # Create a decompose matrix to grab the base components scale
             scaleDecompose = pmc.createNode('decomposeMatrix', name=self.name+'_scaleDecomp'+str(index))
-            self._utilityNodes['scaleDecompose_'+str(index)] = scaleDecompose
             pmc.connectAttr(self.baseComponent.matrixOutput.worldMatrix[0], scaleDecompose.inputMatrix)
             pmc.connectAttr(scaleDecompose.outputScale, space.matrixOutput.scale)
 
             # Create a decompose matrix for each locator, to extract the worldspacematrix
             startDecompose = pmc.createNode('decomposeMatrix', name=self.name + '_startlocatorDecomp_' + str(index))
             endDecompose = pmc.createNode('decomposeMatrix', name=self.name + '_endlocatorDecomp_' + str(index))
-            self._utilityNodes['startDecompose_' + str(index)] = startDecompose
-            self._utilityNodes['endDecompose_' + str(index)] = endDecompose
 
             # Connect the locators worldMatrix to their decompose matrix
             pmc.connectAttr(startLocator.worldMatrix[0], startDecompose.inputMatrix)
@@ -2219,7 +2313,6 @@ class SpineIKComponent(MultiFKComponent):
 
             # Create a pair blend node and connect the outputs from the decomp nodes
             pairBlend = pmc.createNode('pairBlend', name=self.name + '_pairBlend+' + str(index))
-            self._utilityNodes['pairBlend_' + str(index)] = pairBlend
             pmc.connectAttr(startDecompose.outputTranslate, pairBlend.inTranslate1)
             pmc.connectAttr(startDecompose.outputRotate, pairBlend.inRotate1)
             pmc.connectAttr(endDecompose.outputTranslate, pairBlend.inTranslate2)
@@ -2266,18 +2359,18 @@ class SpineIKComponent(MultiFKComponent):
 
         return self._componentGroup
 
-    def parent(self, components, parentComponent, uprightComponent):
+    def parent(self, components, parent=None, upright=None):
 
         # Parent each middle component to its corresponding space
         for index in self.middleIndex:
             self._childComponents[index].parent(self._spineSpaces,
-                                                self._spineSpaces[index-1],
-                                                self._spineSpaces[index-1])
+                                                parent=self._spineSpaces[index-1],
+                                                upright=self._spineSpaces[index-1])
         # Parent the ikComponent
-        self.baseComponent.parent(components, parentComponent, uprightComponent)
+        self.baseComponent.parent(components)
 
         #Parent the base components
-        self.endComponent.parent(components, parentComponent, uprightComponent)
+        self.endComponent.parent(components)
 
     def snap(self):
 
@@ -2293,7 +2386,7 @@ class SpineIKComponent(MultiFKComponent):
     def ready(self):
         error = None
 
-        if self._deformTargets < 3:
+        if self._bindTargets < 3:
             error = 'Needs at least 3 deform targets'
 
         return error
@@ -2313,9 +2406,10 @@ class SpineIKComponent(MultiFKComponent):
         self.logger.debug('Main Control found, collecting curve data')
 
         if self.baseComponent.matrixOutput is not None:
-            return [self._getCurveData(self.baseComponent.matrixOutput),
-                    self._getCurveData(self.endComponent.matrixOutput),
-                    self._getCurveData(self._childComponents[1].matrixOutput)]
+            data =  [self._getCurveData(self.baseComponent.matrixOutput),
+                    self._getCurveData(self.endComponent.matrixOutput)]
+            data += [self._getCurveData(component.matrixOutput) for component in self._middleComponents]
+            return data
         else:
             return  self._mainControlData
 
@@ -2332,7 +2426,7 @@ class LegIKComponent(IKComponent):
         # Create a child component for the base component (This will be the base parent)
         # This is also the only component without squash and stretch control
         self._childComponents.append(FKComponent(name=self.name + str(1),
-                                                 target=self._deformTargets[self.startIndex],
+                                                 target=self._bindTargets[self.startIndex],
                                                  spaceSwitchEnabled= False,
                                                  stretchTarget=None,
                                                  stretchEnabled=False,
@@ -2350,7 +2444,7 @@ class LegIKComponent(IKComponent):
         # For parent space we just use the index of the parent component in our child component list
         for index in self.middleIndex:
             self._childComponents.append(FKComponent(name=self.name + str(index + 1),
-                                                     target=self._deformTargets[index],
+                                                     target=self._bindTargets[index],
                                                      spaceSwitchEnabled=False,
                                                      stretchTarget=self._childComponents[index - 1],
                                                      stretchEnabled=self._squashEnabled,
@@ -2358,7 +2452,7 @@ class LegIKComponent(IKComponent):
                                                      mainControlType=self._offsetCurveType,
                                                      mainControlScale=self._offsetCurveScale,
                                                      mainControlColor=self._mainControlColor,
-                                                     mainControlData=[self._mainControlData[3]],
+                                                     mainControlData=[self._mainControlData[3+index]],
                                                      isLeafJoint=self._isLeafJoint,
                                                      useCustomCurve=self._useCustomCurve,
                                                      aimAtChild=True
@@ -2366,13 +2460,13 @@ class LegIKComponent(IKComponent):
 
         # Create a child component for the endJoint
         self._childComponents.append(FKComponent(name=self.name + str(self.endIndex + 2),
-                                                 target=self._deformTargets[self.endIndex+1],
+                                                 target=self._bindTargets[self.endIndex+1],
                                                  spaceSwitchEnabled=False,
                                                  stretchTarget=self._childComponents[self.endIndex],
                                                  stretchEnabled=self._squashEnabled,
                                                  squashEnabled=self._stretchEnabled,
                                                  mainControlType=self._offsetCurveType,
-                                                 mainControlData=[self._mainControlData[3]],
+                                                 mainControlData=[self._mainControlData[4+len(self.middleIndex)]],
                                                  mainControlScale=self._offsetCurveScale,
                                                  mainControlColor=self._mainControlColor,
                                                  isLeafJoint=self._isLeafJoint,
@@ -2397,22 +2491,25 @@ class LegIKComponent(IKComponent):
 
         pmc.parent(self._handle, rollLocator)
 
-    def parent(self, components, parentComponent, uprightComponent):
+    def parent(self, components, parent=None, upright=None):
 
         # Create the ik chain
         self._createIKChain()
 
+        # Remove this component from the component list
+        componentList = {key: value for key, value in components.iteritems() if value.name != self._name}
+
         # Parent each of the main sub components, to their corresponding space
-        self._childComponents[0].parent(self.ikChainSpaces, self.ikChainSpaces[0], self.ikChainSpaces[0])
-        self._childComponents[1].parent(self.ikChainSpaces, self.ikChainSpaces[1], self.ikChainSpaces[1])
-        self._childComponents[2].parent(self.ikChainSpaces, self.ikChainSpaces[2], self.ikChainSpaces[2])
-        self._childComponents[3].parent(self.ikChainSpaces, self.ikComponent, self.ikComponent)
+        self._childComponents[0].parent(self.ikChainSpaces, parent=self.ikChainSpaces[0], upright=self.ikChainSpaces[0])
+        self._childComponents[1].parent(self.ikChainSpaces, parent=self.ikChainSpaces[1], upright=self.ikChainSpaces[1])
+        self._childComponents[2].parent(self.ikChainSpaces, parent=self.ikChainSpaces[2], upright=self.ikChainSpaces[2])
+        self._childComponents[3].parent(self.ikChainSpaces, parent=self.ikComponent, upright=self.ikComponent)
 
         # Parent the ikComponent
-        self.ikComponent.parent(components, parentComponent, uprightComponent)
+        self.ikComponent.parent(componentList)
 
         #Parent the base components
-        self.baseComponent.parent(components, parentComponent, uprightComponent)
+        self.baseComponent.parent(componentList)
 
     def bake(self, frame):
 
@@ -2420,7 +2517,7 @@ class LegIKComponent(IKComponent):
 
         self.baseComponent.bake(frame=frame)
 
-        if not self._noFlipKnee:
+        if self._poleVectorEnabled:
             pmc.setKeyframe(self._poleControl, t=frame)
 
         for index in range(len(self._childComponents)):
@@ -2430,14 +2527,14 @@ class LegIKComponent(IKComponent):
     def ready(self):
         error = None
 
-        if len(self._deformTargets) is not 4:
+        if len(self._bindTargets) is not 4:
             error = 'Needs 4 deform targets'
 
         return error
 
     @property
     def endIndex(self):
-        return len(self._deformTargets) - 2
+        return len(self._bindTargets) - 2
 
 class AimComponent(FKComponent):
 
@@ -2792,7 +2889,7 @@ def _test_rigtools():
 
     rootID = model.addComponent('Ethan', name='root',
                        componentType= 'Component',
-                       deformTargets=['ethan_skeleton'],
+                       bindTargets=['ethan_skeleton'],
                        mainControlScale=50,
                        mainControlType='cross',
                        aimAxis=[0,1,0]
@@ -2811,7 +2908,7 @@ def _test_rigtools():
     hipID = model.addComponent('Ethan',
                        name='hip',
                        componentType='FKComponent',
-                       deformTargets=['ethan_hips_M'],
+                       bindTargets=['ethan_hips_M'],
                        mainControlType=defaultSpineControl.curveType,
                        mainControlScale=defaultSpineControl.scale)
     model.setComponentValue('Ethan', hipID, 'parentSpace', rootID)
@@ -2820,7 +2917,7 @@ def _test_rigtools():
     rLegID = model.addComponent('Ethan',
                                 name='Leg_R',
                                 componentType='IKComponent',
-                                deformTargets=['ethan_thigh_R', 'ethan_knee_R', 'ethan_foot_R'],
+                                bindTargets=['ethan_thigh_R', 'ethan_knee_R', 'ethan_foot_R'],
                                 mainControlType=defaultIKControl.curveType,
                                 mainControlScale=defaultIKControl.scale)
     model.setComponentValue('Ethan', rLegID, 'parentSpace', hipID)

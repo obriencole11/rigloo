@@ -48,7 +48,7 @@ def create_new_control_cache():
     :return: 
     '''
     global control_shapes
-    new_control_shape = {'default': default_control}
+    new_control_shape = {'default': default_control, 'none': empty_control}
     control_shapes = new_control_shape
     save_control_cache()
 
@@ -262,6 +262,20 @@ default_control = [Control(
     3
     )]
 
+empty_control = [Control(
+    [
+        0.0,
+        0.0,
+        0.0
+    ],
+    [
+        0.0,
+        0.0,
+        0.0
+    ]
+    ,
+    3
+    )]
 
 
 control_shapes = load_control_cache()
