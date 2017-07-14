@@ -1,5 +1,5 @@
 import controltools
-import controltools_ui as ui
+import claw_ui as ui
 from Qt import QtCore, QtWidgets
 import pymel.core as pmc
 Signal = QtCore.Signal

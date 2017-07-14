@@ -1,5 +1,5 @@
-import rigtools
-import rigtools_ui as ui
+import fossil_tools
+import fossil_ui as ui
 import controltools
 import pymel.core as pmc
 import logging
@@ -49,7 +49,7 @@ def setLogLevel(level):
         logger.setLevel(level)
 
     ui.setLogLevel(level)
-    rigtools.setLogLevel(level)
+    fossil_tools.setLogLevel(level)
 
 def removeLogHandlers():
 
@@ -66,7 +66,7 @@ def removeLogHandlers():
         del logger
 
     ui.removeLogHandlers()
-    rigtools.removeLogHandlers()
+    fossil_tools.removeLogHandlers()
 
 
 ##############################
@@ -317,7 +317,7 @@ class ModelController(ui.ViewController):
 
     @property
     def componentTypeData(self):
-        return rigtools.COMPONENT_TYPES
+        return fossil_tools.COMPONENT_TYPES
 
 class MayaController(ModelController):
 
@@ -353,10 +353,10 @@ def load(debug=False):
         mainWindow = ui.MainComponentWindow(mayaWindow)
 
         # Create the data
-        data = rigtools.RigToolsData()
+        data = fossil_tools.RigToolsData()
 
         # Create the model
-        model = rigtools.RigToolsModel(data)
+        model = fossil_tools.RigToolsModel(data)
 
         # Create the controller
         controller = MayaController(mainWindow, model)
@@ -365,4 +365,4 @@ def load(debug=False):
     #mainWindow.show(dockable=True, area='right', allowedArea = "right")
     mainWindow.show()
 
-# from rigtools import rigtools_ui_maya; reload(rigtools_ui_maya); rigtools_ui_maya.show()
+# from fossil_tools import fossil_tools_ui_maya; reload(fossil_tools_ui_maya); fossil_tools_ui_maya.show()
