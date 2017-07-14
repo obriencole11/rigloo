@@ -29,6 +29,9 @@ The main window should then appear. You can then use this code to create your ow
 
 ## Features
 
+#### Overview Video:
+[![](https://i.vimeocdn.com/filter/overlay?src0=https%3A%2F%2Fi.vimeocdn.com%2Fvideo%2F644837265_1280x720.jpg&src1=https%3A%2F%2Ff.vimeocdn.com%2Fimages_v6%2Fshare%2Fplay_icon_overlay.png)](https://vimeo.com/225499505)
+
 Fossil supports the following features:
 * Rig saving/loading
 * Rig baking to existing animation
@@ -46,9 +49,6 @@ Fossil supports the following features:
 * Squash and Stretch for multi-target components with:
   * Individual stretch and squash control
   * Leaf joint support
-
-For a more visual overview, here's a short video that goes over most of these:
-[https://vimeo.com/225499505](https://vimeo.com/225499505)
 
 For a detailed description of how the tool works, consult the [documentation](https://github.com/obriencole11/fossil/blob/master/Documentation.md).
 
