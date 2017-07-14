@@ -45,6 +45,9 @@ Fossil supports the following features:
   * Individual stretch and squash control
   * Leaf joint support
 
+For a more visual overview, here's a short video that goes over most of these:
+[https://vimeo.com/225499505](https://vimeo.com/225499505)
+
 For a detailed description of how the tool works, consult the [documentation](https://github.com/obriencole11/fossil/blob/master/Documentation.md).
 
 ## License
