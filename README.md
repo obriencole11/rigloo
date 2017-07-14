@@ -1,3 +1,5 @@
+![](http://i.imgur.com/ojErmbl.gif)
+
 # Fossil
 ### Fossil is a Component-Based autorigger for Maya
 
