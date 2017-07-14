@@ -16,25 +16,57 @@ file_handler.setFormatter(logging.Formatter('%(asctime)s : %(name)s : %(levelnam
 file_handler.setLevel(logging.DEBUG)
 
 LOGS = []
+FILE_LOGS = []
 LOG_LEVEL = logging.DEBUG
 
 def addLogger(name=__name__):
 
     # Add a logger for the specified name
     logger = logging.getLogger(name)
+    logger.setLevel(LOG_LEVEL)
+
+    # Add a logger for printing to a log file
+    fileLogger = logging.getLogger(name+'_file')
+    fileLogger.propagate = False
 
     # Add the module file handler
-    logger.addHandler(file_handler)
+    fileLogger.handlers = []
+    fileLogger.addHandler(file_handler)
 
     # Add the logger to a list of logs
     LOGS.append(logger)
+    FILE_LOGS.append(fileLogger)
 
     return logger
 
 def setLogLevel(level):
 
+    global LOG_LEVEL
+
+    LOG_LEVEL = level
+
     for logger in LOGS:
         logger.setLevel(level)
+
+    ui.setLogLevel(level)
+    rigtools.setLogLevel(level)
+
+def removeLogHandlers():
+
+    for logger in LOGS:
+        logger.debug('Removed handler')
+        del logger
+
+    for logger in FILE_LOGS:
+        logger.debug('Removed handler')
+
+        for handler in logger.handlers:
+            handler.close()
+
+        del logger
+
+    ui.removeLogHandlers()
+    rigtools.removeLogHandlers()
 
 
 ##############################
@@ -109,13 +141,16 @@ class ModelController(ui.ViewController):
         self.logger.debug('Adding selected joints to a %s component', self.componentData[id])
         self._loadViewData()
         selected = pmc.selected()
-        nameData = [target.name() for target in selected]
         oldData = self.componentData[id]
 
         try:
+            nameData = [target.name() for target in selected if
+                        target not in oldData['bindTargets'] and isinstance(target, pmc.nodetypes.DagNode)]
+
             oldData['bindTargets'].extend(nameData)
         except KeyError:
             try:
+                nameData = [target.name() for target in selected if isinstance(target, pmc.nodetypes.DagNode)]
                 oldData['target'] = nameData[0]
                 self.logger.info('No deform targets found in data for %s, instead adding a target', self.componentData[id])
             except IndexError:
@@ -194,6 +229,7 @@ class ModelController(ui.ViewController):
                 self.removeRig()
             else:
                 self.logger.debug('Rig is not built, skipping remove')
+                self._loadViewData()
 
             # Then build the rig
             self._model.buildRig(self._currentRig)
@@ -244,6 +280,10 @@ class ModelController(ui.ViewController):
         self._model.removePreview(self._currentRig)
         self._currentRigBuilt = False
 
+    @Slot()
+    def stopLogging(self):
+        removeLogHandlers()
+
     #### Private Methods ####
 
 
@@ -289,12 +329,18 @@ class MayaController(ModelController):
 mainWindow = None
 controller = None
 
-def load():
+def load(debug=False):
     global mainWindow
     global controller
+    global LOG_LEVEL
 
     logging.basicConfig(level=logging.DEBUG, filename=os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'),
                         format=logging.Formatter('%(name)s : %(levelname)s : %(message)s'))
+
+    if debug is True:
+        LOG_LEVEL = setLogLevel(logging.DEBUG)
+    else:
+        LOG_LEVEL = setLogLevel(logging.WARNING)
 
     # If the window already exists, don't create a new one
     if mainWindow is None:

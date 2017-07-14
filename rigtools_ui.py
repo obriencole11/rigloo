@@ -16,24 +16,51 @@ file_handler.setFormatter(logging.Formatter('%(asctime)s : %(name)s : %(levelnam
 file_handler.setLevel(logging.DEBUG)
 
 LOGS = []
+FILE_LOGS = []
+LOG_LEVEL = logging.DEBUG
 
 def addLogger(name=__name__):
 
     # Add a logger for the specified name
     logger = logging.getLogger(name)
+    logger.setLevel(LOG_LEVEL)
+
+    # Add a logger for printing to a log file
+    fileLogger = logging.getLogger(name+'_file')
+    fileLogger.propagate = False
 
     # Add the module file handler
-    logger.addHandler(file_handler)
+    fileLogger.handlers = []
+    fileLogger.addHandler(file_handler)
 
     # Add the logger to a list of logs
     LOGS.append(logger)
+    FILE_LOGS.append(fileLogger)
 
     return logger
 
 def setLogLevel(level):
 
+    global LOG_LEVEL
+
+    LOG_LEVEL = level
+
     for logger in LOGS:
         logger.setLevel(level)
+
+def removeLogHandlers():
+
+    for logger in LOGS:
+        logger.debug('Removed handler')
+        del logger
+
+    for logger in FILE_LOGS:
+        logger.debug('Removed handler')
+
+        for handler in logger.handlers:
+            handler.close()
+
+        del logger
 
 ##############################
 #       UI Controllers       #
@@ -156,6 +183,14 @@ class BaseController(QtCore.QObject):
     def toggleDebug(self, value):
         raise NotImplementedError
 
+    @Slot(bool)
+    def toggleLog(self, value):
+        raise NotImplementedError
+
+    @Slot(bool)
+    def toggleAdvanced(self, value):
+        raise NotImplementedError
+
     @Slot()
     def removePreview(self):
         # This removes the rig, but only when previewed
@@ -165,6 +200,10 @@ class BaseController(QtCore.QObject):
     @Slot(str)
     def switchActiveRig(self, rigName):
          # This will tell the model to switch the active rig
+        raise NotImplementedError
+
+    @Slot()
+    def stopLogging(self):
         raise NotImplementedError
 
     #### Private Methods ####
@@ -234,7 +273,10 @@ class ViewController(BaseController):
         self._window.onRigSwitched.connect(self.switchActiveRig)
         self._window.onBakeToggled.connect(self.toggleBake)
         self._window.onWindowClosed.connect(self.removePreview)
+        self._window.onWindowClosed.connect(self.stopLogging)
         self._window.onDebugToggled.connect(self.toggleDebug)
+        self._window.onAdvancedToggled.connect(self.toggleAdvanced)
+        self._window.onLogToggled.connect(self.toggleLog)
 
         # Create a private variable to store the current component settings
         self._componentSettings = dict(COMPONENT_SETTINGS)
@@ -260,13 +302,51 @@ class ViewController(BaseController):
         self.logger.debug('Setting the bake to component setting to %s', value)
 
     @Slot(bool)
+    def toggleLog(self, value):
+
+        if value is True:
+            setLogLevel(logging.DEBUG)
+        else:
+            setLogLevel(logging.WARNING)
+
+    @Slot(bool)
     def toggleDebug(self, value):
+
+        self._loadViewData()
+
         if value:
-            newSettings = COMPONENT_SETTINGS.copy()
+            newSettings = self._componentSettings.copy()
             newSettings.update(COMPONENT_SETTINGS_DEBUG)
+            newSettings.update(COMPONENT_SETTINGS_ADVANCED)
             self._componentSettings = newSettings
         else:
-            self._componentSettings = COMPONENT_SETTINGS
+            newSettings = self._componentSettings.copy()
+
+            for key in self._componentSettings:
+                if key in COMPONENT_SETTINGS_DEBUG:
+                    newSettings.pop(key, None)
+
+            self._componentSettings = newSettings
+
+        self._refreshView()
+
+    @Slot(bool)
+    def toggleAdvanced(self, value):
+
+        self._loadViewData()
+
+        if value:
+            newSettings = self._componentSettings.copy()
+            newSettings.update(COMPONENT_SETTINGS_ADVANCED)
+            self._componentSettings = newSettings
+        else:
+            newSettings = self.componentSettings.copy()
+
+            for key in self._componentSettings:
+                if key in COMPONENT_SETTINGS_ADVANCED:
+                    newSettings.pop(key, None)
+
+            self._componentSettings = newSettings
 
         self._refreshView()
 
@@ -535,6 +615,8 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
     # A signal to let the controller know debug mode should be on
     onDebugToggled = Signal(bool)
+    onAdvancedToggled = Signal(bool)
+    onLogToggled = Signal(bool)
 
     # A signal to let the control know it should switch to bake mode
     onBakeToggled = Signal(bool)
@@ -576,7 +658,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         # Set the icon for the window
         basePath = os.path.dirname(os.path.realpath(__file__))
-        logoIcon = QtGui.QIcon(basePath + '/icons/icon-logo.svg')
+        logoIcon = QtGui.QIcon(basePath + '/icons/logo-black.png')
         self.setWindowIcon(logoIcon)
 
         # Set the starting size
@@ -612,13 +694,17 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         debugAction.setStatusTip('Toggle Debug Mode')
         debugAction.toggled.connect(self.onDebugToggled)
 
-        '''
+        advancedAction = QtWidgets.QAction('Advanced Settings', self)
+        advancedAction.setCheckable(True)
+        advancedAction.setChecked(False)
+        advancedAction.setStatusTip('Toggle Advanced Settings')
+        advancedAction.toggled.connect(self.onAdvancedToggled)
+
         logAction = QtWidgets.QAction('Log to console', self)
         logAction.setCheckable(True)
         logAction.setChecked(False)
         logAction.setStatusTip('Toggle Debug Mode')
         logAction.toggled.connect(self.onLogToggled)
-        '''
 
         bakeAction = QtWidgets.QAction('Bake To Animation', self)
         bakeAction.setCheckable(True)
@@ -638,7 +724,8 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         fileMenu.addAction(loadAction)
         settingsMenu.addAction(debugAction)
         settingsMenu.addAction(bakeAction)
-        #settingsMenu.addAction(logAction)
+        settingsMenu.addAction(advancedAction)
+        settingsMenu.addAction(logAction)
 
     def _createMainWidget(self):
 
@@ -886,14 +973,6 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'Load Rig', '', filter="All JSON files (*.json)")
         self._directory = name
         self.onLoadRigClicked.emit(name)
-
-    @Slot(bool)
-    def onLogToggled(self, value):
-        self.logger.debug('Setting log to console mode to %s', value)
-        if value:
-            logging.basicConfig(level=logging.DEBUG)
-        else:
-            logging.basicConfig(level=logging.WARNING)
 
     @property
     def data(self):
@@ -1147,7 +1226,7 @@ class ComponentWidget(QtWidgets.QWidget):
             widget.onValueChanged.connect(self.onValueChanged)
             return widget
         except KeyError:
-            if not key in COMPONENT_SETTINGS_DEBUG:
+            if not key in COMPONENT_SETTINGS_DEBUG and not key in COMPONENT_SETTINGS_ADVANCED:
                 self.logger.debug('Attempting to add an argument, but key is not in settings. Key: %s ', key)
             return None
 
@@ -1284,8 +1363,6 @@ class ComponentArgumentWidget(QtCore.QObject):
     def __init__(self):
         # Set up a logger
         self.logger = addLogger(type(self).__name__)
-        #self.logger.setLevel(LOG_LEVEL)
-        #self.logger.addHandler(file_handler)
 
         self.onValueChanged.connect(self.valueChangedAlert)
 
@@ -1490,7 +1567,6 @@ class QRigComponentComboBox(QtWidgets.QComboBox, ComponentArgumentWidget):
     def onNameChanged(self, oldName, newName):
 
         self.setItemText(self.findText(oldName), newName)
-
 
 class QVectorWidget(QtWidgets.QWidget, ComponentArgumentWidget):
     def __init__(self, parent, componentData, componentTypeData, controlTypeData):
@@ -1714,8 +1790,8 @@ COMPONENT_SETTINGS = {
     'bindTargets': QTargetList,
     'mainControlType': QControlComboBox,
     'mainControlScale': QScalarWidget,
-    'childControlType': QControlComboBox,
-    'childControlScale': QScalarWidget,
+    'spineControlType': QControlComboBox,
+    'spineControlScale': QScalarWidget,
     'aimAxis': QAxisWidget,
     'parentSpace': QRigComponentComboBox,
     'uprightSpace': QRigComponentComboBox,
@@ -1737,7 +1813,6 @@ COMPONENT_SETTINGS = {
     'secondarySpaceSwitchEnabled': QBoolWidget,
     'target': QTarget,
     'spaceSwitchEnabled': QBoolWidget,
-    'isLeafJoint': QBoolWidget,
     'aimControlType': QControlComboBox,
     'aimVector': QAxisWidget,
     'aimCurveDistance': QScalarWidget,
@@ -1746,10 +1821,17 @@ COMPONENT_SETTINGS = {
     'useCustomBaseCurve': QBoolWidget,
     'useCustomPoleCurve': QBoolWidget,
     'useCustomOffsetCurve': QBoolWidget,
+    'secondaryCurveType': QControlComboBox,
+    'secondaryCurveScale': QScalarWidget,
     'useCustomSecondaryCurve': QBoolWidget,
     'useCustomSpineCurve': QBoolWidget,
     'stretchScale': QScalarWidget,
     'squashScale': QScalarWidget
+
+}
+
+COMPONENT_SETTINGS_ADVANCED = {
+    'isLeafJoint': QBoolWidget
 }
 
 COMPONENT_SETTINGS_DEBUG = {
@@ -1796,6 +1878,8 @@ COMPONENT_GROUPS = [
         'secondaryParentSpace',
         'secondaryUprightSpace',
         'secondarySpaceSwitchEnabled',
+        'secondaryCurveType',
+        'secondaryCurveScale',
         'useCustomSecondaryCurve'
     ]),
     ('Extra Curve Settings', [

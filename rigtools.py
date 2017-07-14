@@ -16,22 +16,51 @@ file_handler.setFormatter(logging.Formatter('%(asctime)s : %(name)s : %(levelnam
 file_handler.setLevel(logging.DEBUG)
 
 LOGS = []
+FILE_LOGS = []
+LOG_LEVEL = logging.DEBUG
 
 def addLogger(name=__name__):
+
     # Add a logger for the specified name
     logger = logging.getLogger(name)
+    logger.setLevel(LOG_LEVEL)
+
+    # Add a logger for printing to a log file
+    fileLogger = logging.getLogger(name+'_file')
+    fileLogger.propagate = False
 
     # Add the module file handler
-    logger.addHandler(file_handler)
+    fileLogger.handlers = []
+    fileLogger.addHandler(file_handler)
 
     # Add the logger to a list of logs
     LOGS.append(logger)
+    FILE_LOGS.append(fileLogger)
 
     return logger
 
 def setLogLevel(level):
+
+    global LOG_LEVEL
+
+    LOG_LEVEL = level
+
     for logger in LOGS:
         logger.setLevel(level)
+
+def removeLogHandlers():
+
+    for logger in LOGS:
+        logger.debug('Removed handler')
+        del logger
+
+    for logger in FILE_LOGS:
+        logger.debug('Removed handler')
+
+        for handler in logger.handlers:
+            handler.close()
+
+        del logger
 
 ##############################
 #       Rig Settings         #
@@ -178,8 +207,6 @@ COMPONENT_TYPES = {
         'type': 'SpineIKComponent',
         'mainControlType': 'square',
         'mainControlScale': 30.0,
-        'childControlType': 'default',
-        'childControlScale': 25.0,
         'bindTargets': [],
         'aimAxis': [1,0,0],
         'parentSpace': None,
@@ -196,7 +223,11 @@ COMPONENT_TYPES = {
         'secondaryParentSpace': None,
         'secondaryUprightSpace': None,
         'secondarySpaceSwitchEnabled': False,
+        'secondaryCurveType': 'default',
+        'secondaryCurveScale': 30.0,
         'useCustomSecondaryCurve':False,
+        'spineControlScale':5.0,
+        'spineControlType':'default',
         'useCustomSpineCurve':False,
         'stretchScale':1.0,
         'squashScale':1.0
@@ -626,35 +657,48 @@ class BasicComponent(object):
 
     def _createMainControl(self):
 
-        if self._orientControlCurve and self.target is not None:
-            # Grab a list of all the targets children
-            children = self.target.getChildren()
+        if not self._useCustomCurve:
+            if self._orientControlCurve and self.target is not None:
+                # Grab a list of all the targets children
+                children = self.target.getChildren()
 
-            # Create a vector to aim the control curve
-            if len(children) == 1:
-                directionVector = children[0].getTranslation(worldSpace=True) - self.target.getTranslation(worldSpace=True)
+                # Create a vector to aim the control curve
+                if len(children) == 1:
+                    directionVector = children[0].getTranslation(worldSpace=True) - self.target.getTranslation(worldSpace=True)
+                else:
+                    directionVector = self.target.getTranslation(worldSpace=True) - self.target.getParent().getTranslation(worldSpace=True)
             else:
-                directionVector = self.target.getTranslation(worldSpace=True) - self.target.getParent().getTranslation(worldSpace=True)
-        else:
-            directionVector = dt.Vector(0,1,0)
+                directionVector = dt.Vector(0,1,0)
 
-        self._mainControl = self._mainControlType.create(upVector=[directionVector.x, directionVector.y, directionVector.z],
-                                                         name=self.name+'_main')
+            self._mainControl = self._mainControlType.create(upVector=[directionVector.x, directionVector.y,
+                                                                       directionVector.z],
+                                                             name=self.name+'_main')
+        else:
+            self._mainControl = self._mainControlType.create(upVector=[0,1,0],
+                                                             name=self.name + '_main')
+
+        # Hide the scale values (we don't want animators to touch those)
+        pmc.setAttr(self._mainControl.sx,  keyable=False, cb=False)
+        pmc.setAttr(self._mainControl.sy,  keyable=False, cb=False)
+        pmc.setAttr(self._mainControl.sz,  keyable=False, cb=False)
 
     def _getCurveData(self, control):
 
         if control is not None:
-            curveInfo = controltools.get_curve_info(control.getShapes())
+            if pmc.objExists(control):
+                curveInfo = controltools.get_curve_info(control.getShapes())
 
-            curveData = []
-            for curve in curveInfo:
-                data = {}
-                data['cvs'] = curve.cvs
-                data['knots'] = curve.knots
-                data['degree'] = curve.degree
-                curveData.append(data)
+                curveData = []
+                for curve in curveInfo:
+                    data = {}
+                    data['cvs'] = curve.cvs
+                    data['knots'] = curve.knots
+                    data['degree'] = curve.degree
+                    curveData.append(data)
 
-            return curveData
+                return curveData
+            else:
+                return None
         else:
             return None
 
@@ -800,7 +844,6 @@ class BasicComponent(object):
         data = {}
         data['mainControlData'] = self.controlCurveData
 
-
         return data
 
 class Rig(object):
@@ -826,8 +869,10 @@ class Rig(object):
         self._components = {}
 
         # If this rig has been built, grab its riggroup
-        if rigGroup:
+        if rigGroup and pmc.objExists(rigGroup):
             self.rigGroup = pmc.PyNode(rigGroup)
+        else:
+            self.rigGroup = None
 
         # For each component in the component data...
         for id, com in self._componentData.iteritems():
@@ -946,7 +991,9 @@ class Rig(object):
 
         # delete the rig group
         try:
-            pmc.delete(self.rigGroup)
+            if self.rigGroup:
+                if pmc.objExists(self.rigGroup):
+                    pmc.delete(self.rigGroup)
         except AttributeError, pmc.general.MayaNodeError:
             pass
 
@@ -1055,7 +1102,6 @@ class Rig(object):
         for com in self._components:
             print self._components[com].printData
 
-
     #### Private Methods ####
 
     def _createComponent(self, componentType='FKComponent', **kwargs):
@@ -1113,6 +1159,13 @@ class Rig(object):
             sceneData[id] = component.sceneData
 
         return sceneData
+
+    @property
+    def inScene(self):
+        if self.rigGroup:
+            return pmc.objExists(self.rigGroup)
+        else:
+            return False
 
     @property
     def directory(self):
@@ -1205,7 +1258,7 @@ class FKComponent(BasicComponent):
         orientPos = self._outputOrient.getMatrix(worldSpace=True)
 
         # Create a decompose matrix to convert the inputs world location to srt values
-        decompMatrix = pmc.createNode('decomposeMatrix', name='outputConnectionDecomp')
+        decompMatrix = pmc.createNode('decomposeMatrix', name=self.name+ '_outputConnectionDecomp')
         pmc.connectAttr(input.worldMatrix[0], decompMatrix.inputMatrix)
 
         # Connect the output to the output buffer
@@ -1405,6 +1458,7 @@ class FKComponent(BasicComponent):
 
         # Create a joint duplicate at the same location
         joint = pmc.duplicate(self.target, po=True, name=self.name + '_outputJoint')[0]
+        pmc.hide(joint)
         pmc.parent(joint, world=True)
 
         # Store a reference to it
@@ -1600,13 +1654,24 @@ class MultiFKComponent(FKComponent):
         FKComponent.__init__(self, **kwargs)
 
         # Grab a reference to all input deform targets
-        self._bindTargets = [pmc.PyNode(target) for target in bindTargets]
+        self._bindTargets = []
 
-        # Sort the deform targets by hierarchy
-        self._sortTargets()
+        for target in bindTargets:
+            if target is not None:
+                try:
+                    self._bindTargets.append(pmc.PyNode(target))
+                except TypeError:
+                    self._bindTargets.append(None)
+            else:
+                self.logger.debug('No target specified, setting to None')
+                self._bindTargets.append(None)
 
-        # Generate the sub components:
-        self._generateChildComponents()
+        if self.ready is None:
+            # Sort the deform targets by hierarchy
+            self._sortTargets()
+
+            # Generate the sub components:
+            self._generateChildComponents()
 
     ##### Private Methods #####
 
@@ -1670,23 +1735,25 @@ class MultiFKComponent(FKComponent):
 
         # Add each deform target to the list, children placed after their parents
         for target in self._bindTargets:
-            for index in range(len(sortedTargets)):
-                if self._isLeafJoint:
-                    target1 = target.getParent()
-                    target2 = sortedTargets[index].getParent()
-                else:
-                    target1 = target
-                    target2 = sortedTargets[index]
+            if target is not None:
+                for index in range(len(sortedTargets)):
+                    if self._isLeafJoint:
+                        target1 = target.getParent()
+                        target2 = sortedTargets[index].getParent()
+                    else:
+                        target1 = target
+                        target2 = sortedTargets[index]
 
-                if len(target2.listRelatives(ad=True, type='joint')) > len(target1.listRelatives(ad=True, type='joint')):
-                    pass
-                else:
-                    sortedTargets.insert(index, target)
-                    break
+                    if len(target2.listRelatives(ad=True, type='joint')) > len(target1.listRelatives(ad=True, type='joint')):
+                        pass
+                    else:
+                        sortedTargets.insert(index, target)
+                        break
 
-            if target not in sortedTargets:
-                sortedTargets.append(target)
-
+                if target not in sortedTargets:
+                    sortedTargets.append(target)
+            else:
+                sortedTargets.append(None)
         # Update the deform target list
         self._bindTargets = sortedTargets
 
@@ -1762,11 +1829,11 @@ class MultiFKComponent(FKComponent):
 
     @property
     def matrixOutput(self):
-        return self._childComponents[self.startIndex].matrixOutput
+        return self._childComponents[self.endIndex].matrixOutput
 
     @property
     def worldSpaceMatrix(self):
-        return self._childComponents[self.startIndex].worldSpaceMatrix
+        return self._childComponents[self.endIndex].worldSpaceMatrix
 
     @property
     def startIndex (self):
@@ -1785,7 +1852,7 @@ class MultiFKComponent(FKComponent):
     def ready(self):
         error = None
 
-        if self._bindTargets < 2:
+        if len(self._bindTargets) < 2:
             error = 'Needs at least 2 deform targets'
 
         return error
@@ -1833,31 +1900,32 @@ class IKComponent(MultiFKComponent):
                                                   curveData=poleCurve,
                                                   scale=poleCurveScale)
 
-        # Create a component for the ik handle
-        self.ikComponent = BasicComponent(name=self.name + '_IKControl',
-                                                 target=self._bindTargets[self.endIndex],
-                                                 parentSpace=self._parentSpace,
-                                                 uprightSpace=self._uprightSpace,
-                                                 spaceSwitchEnabled= self.spaceSwitchEnabled,
-                                                 mainControlType=self._mainControlType.curveType,
-                                                 mainControlScale=self._mainControlScale,
-                                                 mainControlColor=self._mainControlColor,
-                                                 mainControlData=[self._mainControlData[0]],
-                                                 useCustomCurve=self._useCustomCurve,
-                                                 orientControlCurve=False)
+        if self.ready is None:
+            # Create a component for the ik handle
+            self.ikComponent = BasicComponent(name=self.name + '_MainIKControl',
+                                                     target=self._bindTargets[self.endIndex],
+                                                     parentSpace=self._parentSpace,
+                                                     uprightSpace=self._uprightSpace,
+                                                     spaceSwitchEnabled= self.spaceSwitchEnabled,
+                                                     mainControlType=self._mainControlType.curveType,
+                                                     mainControlScale=self._mainControlScale,
+                                                     mainControlColor=self._mainControlColor,
+                                                     mainControlData=[self._mainControlData[0]],
+                                                     useCustomCurve=self._useCustomCurve,
+                                                     orientControlCurve=False)
 
-        # Create a component for the base controller
-        self.baseComponent = BasicComponent(name=self.name + '_IKControl',
-                                                 target=self._bindTargets[self.startIndex],
-                                                 parentSpace=baseParentSpace,
-                                                 uprightSpace=baseUprightSpace,
-                                                 spaceSwitchEnabled= baseSpaceSwitchEnabled,
-                                                 mainControlType=baseCurveType,
-                                                 mainControlScale=baseCurveScale,
-                                                 mainControlColor=self._mainControlColor,
-                                                 mainControlData=[self._mainControlData[2]],
-                                                 useCustomCurve=useCustomBaseCurve,
-                                                 orientControlCurve=False)
+            # Create a component for the base controller
+            self.baseComponent = BasicComponent(name=self.name + '_BaseIKControl',
+                                                     target=self._bindTargets[self.startIndex],
+                                                     parentSpace=baseParentSpace,
+                                                     uprightSpace=baseUprightSpace,
+                                                     spaceSwitchEnabled= baseSpaceSwitchEnabled,
+                                                     mainControlType=baseCurveType,
+                                                     mainControlScale=baseCurveScale,
+                                                     mainControlColor=self._mainControlColor,
+                                                     mainControlData=[self._mainControlData[2]],
+                                                     useCustomCurve=useCustomBaseCurve,
+                                                     orientControlCurve=False)
 
     #### public methods ####
 
@@ -2002,7 +2070,7 @@ class IKComponent(MultiFKComponent):
         # Create a duplicate of each deform joint
         for index in range(len(self._bindTargets)):
             joint = self._bindTargets[index]
-            duplicate = pmc.duplicate(joint, po=True, name=joint.name() + '_ikchain')[0]
+            duplicate = pmc.duplicate(joint, po=True, name=joint.shortName() + '_ikchain')[0]
             pmc.hide(duplicate)
             self.ikChain.append(duplicate)
 
@@ -2013,7 +2081,7 @@ class IKComponent(MultiFKComponent):
                 pmc.parent(duplicate, self.ikChain[index-1])
 
             # Create a buffer for the space
-            spaceBuffer = pmc.group(empty=True, name=joint.name()+'_space_srtBuffer')
+            spaceBuffer = pmc.group(empty=True, name=joint.shortName()+'_space_srtBuffer')
             spaceBuffer.setMatrix(duplicate.getMatrix(worldSpace=True), worldSpace=True)
 
             # Set the space to follow the duplicate joint
@@ -2024,7 +2092,7 @@ class IKComponent(MultiFKComponent):
             riggingTools.scaleConstraint(self.baseComponent.matrixOutput, spaceBuffer)
 
             # Create an empty group to be the parent for the joint's component
-            space = pmc.group(empty=True, name=joint.name()+'_space')
+            space = pmc.group(empty=True, name=joint.shortName()+'_space')
             space.setMatrix(duplicate.getMatrix(worldSpace=True), worldSpace=True)
             pmc.parent(space, spaceBuffer)
 
@@ -2035,7 +2103,9 @@ class IKComponent(MultiFKComponent):
             self.ikChainSpaces.append(Space(space))
 
         # Create the ikHandle and effector
-        self._handle, self._effector = pmc.ikHandle(sj=self.ikChain[0], ee=self.ikChain[self.endIndex])
+        self._handle, self._effector = pmc.ikHandle(sj=self.ikChain[0], ee=self.ikChain[self.endIndex],
+                                                    name= self.name+'_handle')
+        pmc.hide(self._handle)
 
         # Parent the handle to the main control
         pmc.parent(self._handle, self.ikComponent.matrixOutput)
@@ -2125,8 +2195,8 @@ class IKComponent(MultiFKComponent):
 
         error = None
 
-        if not len(self._bindTargets) < 3:
-            error = 'Requires at least three deform targets'
+        if len(self._bindTargets) < 3:
+            error = 'Requires at least three targets'
 
         return error
 
@@ -2156,7 +2226,7 @@ class IKComponent(MultiFKComponent):
         error = None
 
         if self._bindTargets < 3:
-            error = 'Needs at least 3 deform targets'
+            error = 'Needs at least 3 targets'
 
         return error
 
@@ -2185,17 +2255,18 @@ class SpineIKComponent(MultiFKComponent):
 
     def __init__(self, spineControlScale=15, spineControlType='default', useCustomSpineCurve=False,
                  secondaryParentSpace=None, secondaryUprightSpace=None, secondarySpaceSwitchEnabled=False,
-                 useCustomSecondaryCurve = False, **kwargs):
+                 secondaryCurveScale=30.0, secondaryCurveType='default', useCustomSecondaryCurve = False, **kwargs):
 
         # Set up initial variables
         self._spineControlType = spineControlType
         self._spineControlScale = spineControlScale
         self._secondaryParentSpace = secondaryParentSpace
         self._secondaryUprightSpace = secondaryUprightSpace
+        self._secondaryCurveType = secondaryCurveType
         self._secondarySpaceSwitchEnabled = secondarySpaceSwitchEnabled
         self._useCustomSecondaryCurve = useCustomSecondaryCurve
         self._useCustomSpineCurve = useCustomSpineCurve
-
+        self._secondaryCurveScale = secondaryCurveScale
         self._middleComponents = []
 
         # Initialize the base class
@@ -2255,8 +2326,8 @@ class SpineIKComponent(MultiFKComponent):
                                                  stretchTarget=self._childComponents[self.endIndex - 1],
                                                  stretchEnabled=self._squashEnabled,
                                                  squashEnabled=self._stretchEnabled,
-                                                 mainControlType=self._mainControlType.curveType,
-                                                 mainControlScale=self._mainControlScale,
+                                                 mainControlType=self._secondaryCurveType,
+                                                 mainControlScale=self._secondaryCurveScale,
                                                  mainControlColor=self._mainControlColor,
                                                  useCustomCurve=self._useCustomSecondaryCurve,
                                                  mainControlData=[self._mainControlData[1]],
@@ -2320,8 +2391,8 @@ class SpineIKComponent(MultiFKComponent):
 
             # Create an attribute for the blend, and set a default value to it
             pmc.addAttr(self._childComponents[index].matrixOutput,
-                        ln='startEndWeight', sn='sew', nn='State End Weight', type='double',
-                        defaultValue=float(index + 1) / float(len(self.middleIndex) + 1),
+                        ln='startEndWeight', sn='sew', nn='Spine Blend Value', type='double',
+                        defaultValue=float(self.middleIndex.index(index) + 1) / float(len(self.middleIndex) + 1),
                         hasMinValue=True, minValue=0.0,
                         hasMaxValue=True, maxValue=1.0,
                         k=True, hidden=False)
@@ -2386,8 +2457,8 @@ class SpineIKComponent(MultiFKComponent):
     def ready(self):
         error = None
 
-        if self._bindTargets < 3:
-            error = 'Needs at least 3 deform targets'
+        if len(self._bindTargets) < 3:
+            error = 'Needs at least 3 targets'
 
         return error
 
@@ -2528,7 +2599,7 @@ class LegIKComponent(IKComponent):
         error = None
 
         if len(self._bindTargets) is not 4:
-            error = 'Needs 4 deform targets'
+            error = 'Needs at least 4 targets'
 
         return error
 
@@ -2608,6 +2679,16 @@ class ScaleComponent(BasicComponent):
 
         pmc.connectAttr(self.matrixOutput.scale, self._target.scale)
 
+    def build(self):
+        group = BasicComponent.build(self)
+
+        # Show the scale values cause we want control over those
+        pmc.setAttr(self._mainControl.sx, keyable=True, cb=True)
+        pmc.setAttr(self._mainControl.sy, keyable=True, cb=True)
+        pmc.setAttr(self._mainControl.sz, keyable=True, cb=True)
+
+        return group
+
     @property
     def ready(self):
         error = None
@@ -2679,9 +2760,14 @@ class RigToolsModel(object):
         try:
             rigData = eval(pmc.fileInfo['rigs'])
 
-            rigs = {rigName: Rig(rigName, rigData['componentData'], rigData['directory'],
+            rigs = {}
+
+            for rigName, rigData in rigData.iteritems():
+                rig = Rig(rigName, rigData['componentData'], rigData['directory'],
                                  rigGroup=rigData['rigGroup'])
-                                for rigName, rigData in rigData.iteritems()}
+
+                if rig.inScene:
+                    rigs[rigName] = rig
 
         except KeyError:
             self.logger.info('No rigs found in scene, creating an empty rig instead')
