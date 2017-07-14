@@ -17,13 +17,18 @@ Fossil is **code driven**. Rigs are built and attached dynamically, meaning it c
 
 Functionally the tool is inspired by Blizzard's code based rigging for Overwatch, as seen in their GDC 2017 talk "The Animation Pipeline of Overwatch". Visually the tool is reminiscent of Unity's component editor, an engine I have much experience with.
 
+## Download
+
+The latest release can be downloaded here:
+https://github.com/obriencole11/fossil/releases
+
 ## Installation
 
-Currently fossil only supports a manual installation. To do so, download the zip of this project and place the entire folder in: `C:\Users\*User*\Documents\maya\*version*\scripts`
+Currently fossil only supports a manual installation. To do so, download the zip of this project and extract the contents into: `C:\Users\*User*\Documents\maya\*version*\scripts`
 
 Then Maya's script editor add the following text and run it:
 ```
-import fossil_main; fossil_main.load()
+from fossil import fossil_main; fossil_main.load()
 ```
 The main window should then appear. You can then use this code to create your own shelf button. A custom icon for adding to a shelf is available in `icon/icon-logoShelf.svg`
 
