@@ -24,9 +24,11 @@ https://github.com/obriencole11/fossil/releases
 
 ## Installation
 
-Currently fossil only supports a manual installation. To do so, download the zip of this project and extract the contents into: `C:\Users\*User*\Documents\maya\*version*\scripts`
+Currently fossil only supports a manual installation. To do so, first create a folder titled 'fossil' in: `C:\Users\*User*\Documents\maya\*version*\scripts`
 
-Then Maya's script editor add the following text and run it:
+Then download the latest release of the project and extract the contents into that folder.
+
+Then Maya's script editor(make sure its a python editor), add the following text and run it:
 ```
 from fossil import fossil_main; fossil_main.load()
 ```
