@@ -993,11 +993,6 @@ class MainComponentWindow(QtWidgets.QMainWindow):
 
         return onAddComponent
 
-class MayaComponentWindow(MayaQWidgetDockableMixin, MainComponentWindow):
-
-    def __init__(self, parent=None):
-        super(MayaComponentWindow, self).__init__(parent=parent)
-
 ##############################
 #      Component Widget      #
 ##############################
@@ -1173,6 +1168,7 @@ class ComponentWidget(QtWidgets.QWidget):
         settingsButton = QtWidgets.QPushButton()
         settingsButton.setFlat(True)
         settingsIcon = QtGui.QIcon(':/gear.png')
+        settingsButton.setSpaceing(0)
         settingsButton.setIcon(settingsIcon)
 
         # Create a menu for the button
