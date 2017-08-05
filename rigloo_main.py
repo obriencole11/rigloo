@@ -1,5 +1,5 @@
-import fossil_tools
-import fossil_ui as ui
+import rigloo_tools
+import rigloo_ui as ui
 import controltools
 import pymel.core as pmc
 import logging
