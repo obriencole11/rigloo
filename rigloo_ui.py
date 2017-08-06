@@ -3,15 +3,15 @@ from Qt.QtCore import Slot, Signal
 import os
 import logging
 import uuid
-from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
 
-FOSSIL_VERSION = 'v1.0.0-beta'
+
+RIGLOO_VERSION = 'v1.0.1-beta'
 
 ##############################
 #          Logging           #
 ##############################
 
-file_handler = logging.FileHandler(os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'))
+file_handler = logging.FileHandler(os.path.join(os.environ['MAYA_APP_DIR'],'rigloo.log'))
 file_handler.setFormatter(logging.Formatter('%(asctime)s : %(name)s : %(levelname)s : %(message)s'))
 file_handler.setLevel(logging.DEBUG)
 
@@ -654,7 +654,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
     def _setup(self):
 
         # Set the default state of the window
-        self.setWindowTitle('Fossil ' + FOSSIL_VERSION)
+        self.setWindowTitle('rigloo ' + RIGLOO_VERSION)
 
         # Set the icon for the window
         basePath = os.path.dirname(os.path.realpath(__file__))
@@ -824,6 +824,7 @@ class MainComponentWindow(QtWidgets.QMainWindow):
         line.setFrameShadow(QtWidgets.QFrame.Sunken)
         line.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         return line
+
 
     def closeEvent(self, event):
         self.logger.debug('Window close event received')
@@ -1168,7 +1169,6 @@ class ComponentWidget(QtWidgets.QWidget):
         settingsButton = QtWidgets.QPushButton()
         settingsButton.setFlat(True)
         settingsIcon = QtGui.QIcon(':/gear.png')
-        settingsButton.setSpaceing(0)
         settingsButton.setIcon(settingsIcon)
 
         # Create a menu for the button

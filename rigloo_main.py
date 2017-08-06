@@ -3,9 +3,10 @@ import rigloo_ui as ui
 import controltools
 import pymel.core as pmc
 import logging
-from Qt import QtCore, QtWidgets
+from Qt import QtCore, QtWidgets, QtGui
 from Qt.QtCore import Slot, Signal
 import os
+from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
 
 ##############################
 #          Logging           #
@@ -49,7 +50,7 @@ def setLogLevel(level):
         logger.setLevel(level)
 
     ui.setLogLevel(level)
-    fossil_tools.setLogLevel(level)
+    rigloo_tools.setLogLevel(level)
 
 def removeLogHandlers():
 
@@ -66,7 +67,7 @@ def removeLogHandlers():
         del logger
 
     ui.removeLogHandlers()
-    fossil_tools.removeLogHandlers()
+    rigloo_tools.removeLogHandlers()
 
 
 ##############################
@@ -80,8 +81,7 @@ def maya_api_version():
 #       Window Classes       #
 ##############################
 
-
-class MayaComponentWindow(ui.MayaQWidgetDockableMixin, ui.MainComponentWindow):
+class MayaComponentWindow(MayaQWidgetDockableMixin, ui.MainComponentWindow):
     '''
     A version specific to maya that works with Maya's docking.
     Based on source code from: https://gist.github.com/liorbenhorin/217bfb7e54c6f75b9b1b2b3d73a1a43a
@@ -108,7 +108,8 @@ class MayaComponentWindow(ui.MayaQWidgetDockableMixin, ui.MainComponentWindow):
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
 
         # Repaint the main widget, this fixes some maya updating issues
-        self.main_widget.repaint()
+        self.repaint()
+
 
     def deleteInstances(self):
 
@@ -132,7 +133,7 @@ class MayaComponentWindow(ui.MayaQWidgetDockableMixin, ui.MainComponentWindow):
 
             for obj in self.mayaMainWindow.children():
 
-                if str(type(obj)) == "<class '{}.MyDockingWindow'>".format(os.path.splitext(
+                if str(type(obj)) == "<class '{}.MayaComponentWindow'>".format(os.path.splitext(
                         os.path.basename(__file__)[0])):  # ""<class 'moduleName.mayaMixin.MyDockingWindow'>":
 
                     if obj.__class__.__name__ == "MayaComponentWindow":  # Compare object names
@@ -158,6 +159,7 @@ class MayaComponentWindow(ui.MayaQWidgetDockableMixin, ui.MainComponentWindow):
         '''
 
         def run2017():
+
             self.setObjectName("MayaComponentWindow")
 
             # The deleteInstances() dose not remove the workspace control, and we need to remove it manually
@@ -169,17 +171,18 @@ class MayaComponentWindow(ui.MayaQWidgetDockableMixin, ui.MainComponentWindow):
             # which was the only way i found i can dock my window next to the channel controls, attributes editor and modelling toolkit.
             self.show(dockable=True, area='right', floating=False)
             pmc.workspaceControl(workspaceControlName, e=True, ttc=["AttributeEditor", -1], wp="preferred",
-                                  mw=420)
+                                  mw=350)
             self.raise_()
 
             # size can be adjusted, of course
-            self.setDockableParameters(width=420)
+            self.setDockableParameters(width=350)
+
 
         def run2016():
             self.setObjectName("MayaComponentWindow")
             # on maya < 2017, the MayaQWidgetDockableMixin.show() magiclly docks the window next
             # to the channel controls, attributes editor and modelling toolkit.
-            self.show(dockable=True, area='right', floating=False)
+            self.show(dockable=True, area='left', floating=True)
             self.raise_()
             # size can be adjusted, of course
             self.setDockableParameters(width=300)
@@ -440,7 +443,7 @@ class ModelController(ui.ViewController):
 
     @property
     def componentTypeData(self):
-        return fossil_tools.COMPONENT_TYPES
+        return rigloo_tools.COMPONENT_TYPES
 
 class MayaController(ModelController):
 
@@ -457,7 +460,7 @@ def load(debug=False):
     global controller
     global LOG_LEVEL
 
-    logging.basicConfig(level=logging.DEBUG, filename=os.path.join(os.environ['MAYA_APP_DIR'],'fossil.log'),
+    logging.basicConfig(level=logging.DEBUG, filename=os.path.join(os.environ['MAYA_APP_DIR'],'rigloo.log'),
                         format=logging.Formatter('%(name)s : %(levelname)s : %(message)s'))
 
     if debug is True:
@@ -474,20 +477,17 @@ def load(debug=False):
 
         # Create the window
         mainWindow = MayaComponentWindow(mayaWindow)
-       # mainWindow = MayaComponentWindow2(mayaWindow)
 
         # Create the data
-        data = fossil_tools.RigToolsData()
+        data = rigloo_tools.RigToolsData()
 
         # Create the model
-        model = fossil_tools.RigToolsModel(data)
+        model = rigloo_tools.RigToolsModel(data)
 
         # Create the controller
         controller = MayaController(mainWindow, model)
 
     # Show the window
-    #mainWindow.show(dockable=True, area='right', allowedArea = "right")
-    #mainWindow.show()
     mainWindow.run()
 
-# from fossil_tools import fossil_tools_ui_maya; reload(fossil_tools_ui_maya); fossil_tools_ui_maya.show()
+# from rigloo_tools import rigloo_tools_ui_maya; reload(rigloo_tools_ui_maya); rigloo_tools_ui_maya.show()
