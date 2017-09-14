@@ -107,3 +107,4 @@ ENV/
 # Illustrator File
 .ai
 # End of https://www.gitignore.io/api/python
+rigloo/newTools.py

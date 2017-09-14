@@ -107,9 +107,6 @@ class MayaComponentWindow(MayaQWidgetDockableMixin, ui.MainComponentWindow):
         # Makes Qt delete this widget when the widget has accepted the close event
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
 
-        # Repaint the main widget, this fixes some maya updating issues
-        self.repaint()
-
 
     def deleteInstances(self):
 
@@ -478,6 +475,10 @@ def load(debug=False):
         # Create the window
         mainWindow = MayaComponentWindow(mayaWindow)
 
+        signals = get_signals(MayaComponentWindow)
+        for signal in signals:
+            getattr(mainWindow, signal).connect(reload)
+
         # Create the data
         data = rigloo_tools.RigToolsData()
 
@@ -489,5 +490,15 @@ def load(debug=False):
 
     # Show the window
     mainWindow.run()
+
+@Slot()
+def reload(*args, **kwargs):
+    app = QtWidgets.QApplication.instance()
+    app.processEvents()
+
+def get_signals(source):
+    cls = source if isinstance(source, type) else type(source)
+    signal = type(Signal())
+    return [name for name in dir(source) if isinstance(getattr(cls, name), signal)]
 
 # from rigloo_tools import rigloo_tools_ui_maya; reload(rigloo_tools_ui_maya); rigloo_tools_ui_maya.show()
