@@ -1,4 +1,4 @@
-# Fossil Documentation
+# Rigloo Documentation
 
 ## Core Features
 
@@ -12,15 +12,15 @@ Hitting the preview button generates the rig but does not attach it to your char
 Hitting bind will attach the controls to your character. Once attached you can easily detach it with the remove button or by simply undoing. When attached, deleting the rig group in the outline will be destructive. The tool should remember your rig and can be removed after. A simple work around however if you cannot remove the rig, is to select all bound joints and use key > bakesimulation. Then your rig will be safe to delete.
 
 #### Baking Rigs
-Under the settings menu, you can turn on 'bake on bind'. This means when bind is hit, it will first bake the targets animation to the control rig before attaching. This may take a little bit depending on rig complexity and animation length, so I do not recomend having this on when prototyping.
+Under the settings menu, you can turn on 'bake on bind'. This means when bind is hit, it will first bake the targets animation to the control rig before attaching. This may take a little bit depending on rig complexity and animation length, so I do not recommend having this on when prototyping.
 
 #### Saving and Loading Rigs
 Rigs can be saved as .json files in the tool's file menu. The default save location being your maya script directory. When loading rigs, the rig is added to an active rig dropdown list. Active rigs can be switched with the dropdown list. Bound rigs should be automatically added to this dropdown when the tool opens.
 
 #### Squash and Stretch
-All multi-target components support squash and stretch. However, it is recomended you do so via leaf joints. With a leaf joint setup, each joint bound to the skin cluster does not have any children. This way when they are stretched, there are no space issues with the joints below it. This is also the recomended setup for exporting to game engines. There is a script included with this tool that will convert a bound skeleton to one set up with leaf joints. The tool can be run with:
+All multi-target components support squash and stretch. However, it is recommended you do so via leaf joints. With a leaf joint setup, each joint bound to the skin cluster does not have any children. This way when they are stretched, there are no space issues with the joints below it. This is also the recommended setup for exporting to game engines. There is a script included with this tool that will convert a bound skeleton to one set up with leaf joints. The tool can be run with:
 ```
-import leafJointGenerator; leafJointGenerator.generate(*your skeleton*)
+from rigloo import leafJointGenerator; leafJointGenerator.generate(*your skeleton*)
 ```
 
 ## Components
@@ -56,7 +56,7 @@ Example uses
 
 Features:
 * See Basic Component
-* Is Leaf Joint: Whether the target is a leaf joint. This is for specific squash and stretch setups where bind joints do not have any children. This is the recomended method for squash and stretch setups with this tool (see above)
+* Is Leaf Joint: Whether the target is a leaf joint. This is for specific squash and stretch setups where bind joints do not have any children. This is the recommended method for squash and stretch setups with this tool (see above)
 
 ### Multi-FK Component
 A grouping a two or more FK Components. This makes it easier to organize large FK chains when rigging. Only the top level component has parent space control. 
@@ -69,10 +69,10 @@ Features:
 * See FK Component
 * Targets: A selection of targets that the component should attach to.
 * Stretch Enabled: Joints will scale to match their length
-* Squash Enabled: Joints will expand and constract when length increases
+* Squash Enabled: Joints will expand and contract when length increases
 
 ### IK Component
-A grouping of FK components that follows a simple IK chain. This allows for slight offsets from the reference IK chain. The start and end of the chain are a seperate FK component with parent space control.
+A grouping of FK components that follows a simple IK chain. This allows for slight offsets from the reference IK chain. The start and end of the chain are a separate FK component with parent space control.
 Example Uses:
 * IK Arms
 * IK Legs
@@ -91,7 +91,7 @@ Example Uses:
 Features:
 * See Multi-FK Component
 * Child Control Type: The base shape preset for the spine FK offset controls.
-* Child Control Scale: The base scale for each spine offset contrl.
+* Child Control Scale: The base scale for each spine offset control.
 
 ### Leg IK Component
 A more complex form of the IK Component that is built specifically for humanoid legs. Requires a 4 joint chain, and provides the normal ik chain with the addition of reverse foot roll functionality.

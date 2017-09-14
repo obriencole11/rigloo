@@ -1,45 +1,35 @@
-![](http://i.imgur.com/ojErmbl.gif)
+![Rigloo Logo](/images/logo-loop.gif)
 
-# Fossil
-### Fossil is a Component-Based autorigger for Maya
+# Rigloo
+### Rigloo is a Component-Based autorigger for Maya
 
-Fossil was built with the following goals in mind:
+![Rigloo Banner](/images/banner.gif)
+
+Rigloo was built with the following goals in mind:
 * Allow for **fast** rig prototyping and iteration
 * Be **flexible** and support a diverse selection of characters
 * Make rigging **accessible** without sacrifising flexibility
 * Be **adaptive** and allow for working off of existing animation data
 
-Fossil is **component based**. Rigs are constructed with common rig parts that can be customized to fit each character. This design choice was essential to support a variety of body types, as the rig makes very few assumptions on the construction of the users character. Other tools like HIK and Motionbuilders control rig make strict assumptions on character construction and would not work for the project in mind.
+Rigloo is **component based**. Rigs are constructed with common rig parts that can be customized to fit each character. This design choice was essential to support a variety of body types, as the rig makes very few assumptions on the construction of the users character. Other tools like HIK and Motionbuilders control rig make strict assumptions on character construction and would not work for the project in mind.
 
-Fossil is **code driven**. Rigs are built and attached dynamically, meaning it can fit to any skeleton shape. Additionally this was essential to allow for baking the rig to existing animation data. This means the tool can be used for motion capture cleanup or even animation created with other rigs.
+Rigloo is **code driven**. Rigs are built and attached dynamically, meaning it can fit to any skeleton shape. Additionally this was essential to allow for baking the rig to existing animation data. This means the tool can be used for motion capture cleanup or even animation created with other rigs.
+
+## Philosophy
+While there are plenty of existing solutions for simplifying rig construction, most will include restrictive assumptions about character design. Tools like Maya's HIK require your character to be humanoid, while others will specify humanoid or quadruped. Rigloo was built as a rigging tool that simplifies the rigging process but does not sacrifice the creative freedom we have as riggers.
+
+As a rigger, I also desired something that I would be able to use to speed up my own iteration time. Often I would like to make a quick rig prototype, but will be restricted in the features I can add in a short amount of time. Complex features such as parent space switching and squash and stretch would need to be omitted unless I spent the time to write a script devoted to them. Rigloo is built to speed up the rigging process while allowing for commonly used and complex features to be added to prototype rigs.
 
 ### Inspiration
 
 Functionally the tool is inspired by Blizzard's code based rigging for Overwatch, as seen in their GDC 2017 talk "The Animation Pipeline of Overwatch". Visually the tool is reminiscent of Unity's component editor, an engine I have much experience with.
 
-## Download
-
-The latest release can be downloaded here:
-https://github.com/obriencole11/fossil/releases
-
-## Installation
-
-Currently fossil only supports a manual installation. To do so, first create a folder titled 'fossil' in: `C:\Users\*User*\Documents\maya\*version*\scripts`
-
-Then download the latest release of the project and extract the contents into that folder.
-
-Then Maya's script editor(make sure its a python editor), add the following text and run it:
-```
-from fossil import fossil_main; fossil_main.load()
-```
-The main window should then appear. You can then use this code to create your own shelf button. A custom icon for adding to a shelf is available in `icon/icon-logoShelf.svg`
-
 ## Features
 
 #### Overview Video:
-[![](https://i.vimeocdn.com/filter/overlay?src0=https%3A%2F%2Fi.vimeocdn.com%2Fvideo%2F644837265_1280x720.jpg&src1=https%3A%2F%2Ff.vimeocdn.com%2Fimages_v6%2Fshare%2Fplay_icon_overlay.png)](https://vimeo.com/225499505)
+[![](/images/video-thumbnail.png)](https://vimeo.com/225499505)
 
-Fossil supports the following features:
+Rigloo supports the following features:
 * Rig saving/loading
 * Rig baking to existing animation
 * 7 components including:
@@ -57,7 +47,22 @@ Fossil supports the following features:
   * Individual stretch and squash control
   * Leaf joint support
 
-For a detailed description of how the tool works, consult the [documentation](https://github.com/obriencole11/fossil/blob/master/Documentation.md).
+For a detailed description of how the tool works, consult the [documentation](https://github.com/obriencole11/rigloo/blob/master/Documentation.md).
+
+## Download
+
+The latest release can be downloaded here:
+https://github.com/obriencole11/rigloo/releases
+
+## Installation
+
+Currently rigloo only supports a manual installation:
+1. Extract the 'rigloo' folder into your Maya scripts directory
+2. In Maya's script editor(make sure its a python editor), add the following text and run it:
+```
+from rigloo import rigloo_main; rigloo_main.load()
+```
+3. The main window should then appear. You can then use this code to create your own shelf button. A custom icon for adding to a shelf is available in `icon/icon-logoShelf.svg`
 
 ## License
 
